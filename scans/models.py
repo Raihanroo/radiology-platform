@@ -34,6 +34,10 @@ class AIAnalysisResult(models.Model):
     )
     tumor_area_pixels = models.IntegerField(null=True, blank=True)
     tumor_area_percentage = models.FloatField(null=True, blank=True)
+    needs_review = models.BooleanField(
+        default=False,
+        help_text="Classifier 'notumor' বলেছে কিন্তু segmentation উল্লেখযোগ্য tumor area পেয়েছে — ম্যানুয়াল review দরকার",
+    )
     processed_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
