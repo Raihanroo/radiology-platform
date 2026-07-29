@@ -87,6 +87,37 @@ class ScanAnalyzeView(APIView):
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
 
 
+class MyScansListView(generics.ListAPIView):
+    """
+    GET /api/scans/my-scans/
+    শুধু patient -- নিজের আপলোড করা সব scan-এর history দেখতে পারবে
+    (সবচেয়ে নতুন scan আগে)।
+    """
+
+    serializer_class = MRIScanSerializer
+    permission_classes = [IsPatient]
+
+    def get_queryset(self):
+        return MRIScan.objects.filter(patient=self.request.user).order_by(
+            "-uploaded_at"
+        )
+
+
+class ReviewedByMeListView(generics.ListAPIView):
+    """
+    GET /api/scans/reviewed-by-me/
+    শুধু radiologist -- সে নিজে যেসব scan review করেছে তার history দেখতে পারবে।
+    """
+
+    serializer_class = MRIScanSerializer
+    permission_classes = [IsRadiologist]
+
+    def get_queryset(self):
+        return MRIScan.objects.filter(
+            radiologist_review__radiologist=self.request.user
+        ).order_by("-radiologist_review__reviewed_at")
+
+
 class ReviewQueueListView(generics.ListAPIView):
     """
     GET /api/scans/review-queue/
