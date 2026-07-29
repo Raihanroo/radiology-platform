@@ -145,3 +145,8 @@ REST_FRAMEWORK = {
 
 # Custom User Model (এখনই বলে রাখছি, পরের ধাপে accounts/models.py বানাব)
 AUTH_USER_MODEL = 'accounts.User'
+
+
+# Media files (uploaded MRI scans, masks, overlays)
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
