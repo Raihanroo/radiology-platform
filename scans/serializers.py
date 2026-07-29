@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import MRIScan, AIAnalysisResult
+from .models import MRIScan, AIAnalysisResult, RadiologistReview
 
 
 class AIAnalysisResultSerializer(serializers.ModelSerializer):
@@ -18,8 +18,40 @@ class AIAnalysisResultSerializer(serializers.ModelSerializer):
         ]
 
 
+class RadiologistReviewSerializer(serializers.ModelSerializer):
+    """
+    Review দেখানোর জন্য (read) -- radiologist-এর username দেখানো হয়,
+    পুরো User object না (privacy/simplicity)।
+    """
+
+    radiologist = serializers.CharField(source="radiologist.username", read_only=True)
+
+    class Meta:
+        model = RadiologistReview
+        fields = [
+            "id",
+            "radiologist",
+            "status",
+            "observations",
+            "corrected_classification",
+            "reviewed_at",
+        ]
+
+
+class RadiologistReviewCreateSerializer(serializers.ModelSerializer):
+    """
+    Radiologist review জমা দেওয়ার জন্য (write)। scan ও radiologist এখানে
+    client থেকে নেওয়া হয় না -- view থেকে সেট হয় (URL-এর scan_id + request.user)।
+    """
+
+    class Meta:
+        model = RadiologistReview
+        fields = ["status", "observations", "corrected_classification"]
+
+
 class MRIScanSerializer(serializers.ModelSerializer):
     analysis = AIAnalysisResultSerializer(read_only=True)
+    radiologist_review = RadiologistReviewSerializer(read_only=True)
 
     class Meta:
         model = MRIScan
@@ -31,6 +63,7 @@ class MRIScanSerializer(serializers.ModelSerializer):
             "scan_type",
             "uploaded_at",
             "analysis",
+            "radiologist_review",
         ]
         read_only_fields = ["uploaded_by"]
 

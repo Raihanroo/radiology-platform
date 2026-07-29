@@ -1,13 +1,18 @@
 import os
 from django.conf import settings
+from django.shortcuts import get_object_or_404
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework import status
+from rest_framework import status, generics
 from rest_framework.parsers import MultiPartParser, FormParser
-from accounts.permissions import IsPatient
+from accounts.permissions import IsPatient, IsRadiologist
 
-from .models import MRIScan, AIAnalysisResult
-from .serializers import MRIScanSerializer, ScanUploadSerializer
+from .models import MRIScan, AIAnalysisResult, RadiologistReview
+from .serializers import (
+    MRIScanSerializer,
+    ScanUploadSerializer,
+    RadiologistReviewCreateSerializer,
+)
 from .inference import predict_tumor, predict_segmentation
 
 
@@ -78,5 +83,51 @@ class ScanAnalyzeView(APIView):
             analysis.save()
 
         # ৫. Response পাঠানো
+        response_serializer = MRIScanSerializer(scan)
+        return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+
+
+class ReviewQueueListView(generics.ListAPIView):
+    """
+    GET /api/scans/review-queue/
+    শুধু radiologist দেখতে পারবে -- এমন সব scan যেগুলোর needs_review=True
+    এবং এখনো কোনো radiologist review হয়নি (pending queue)।
+    """
+
+    serializer_class = MRIScanSerializer
+    permission_classes = [IsRadiologist]
+
+    def get_queryset(self):
+        return MRIScan.objects.filter(
+            analysis__needs_review=True, radiologist_review__isnull=True
+        ).order_by("uploaded_at")
+
+
+class ScanReviewCreateView(APIView):
+    """
+    POST /api/scans/<scan_id>/review/
+    Radiologist একটা নির্দিষ্ট scan-এর জন্য review জমা দেয়
+    (approved/rejected/modified + observations + corrected_classification)।
+    """
+
+    permission_classes = [IsRadiologist]
+
+    def post(self, request, scan_id):
+        scan = get_object_or_404(MRIScan, id=scan_id)
+
+        # একটা scan-এ ইতিমধ্যে review থাকলে দ্বিতীয়বার review করা যাবে না
+        # (OneToOneField constraint অনুযায়ী -- ভবিষ্যতে চাইলে "update" endpoint আলাদা বানানো যাবে)
+        if hasattr(scan, "radiologist_review"):
+            return Response(
+                {"error": "এই scan-টা ইতিমধ্যে review করা হয়ে গেছে।"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = RadiologistReviewCreateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer.save(scan=scan, radiologist=request.user)
+
         response_serializer = MRIScanSerializer(scan)
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)

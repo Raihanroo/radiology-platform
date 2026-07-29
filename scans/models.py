@@ -42,3 +42,42 @@ class AIAnalysisResult(models.Model):
 
     def __str__(self):
         return f"{self.classification} ({self.confidence_score:.2f}%)"
+
+
+class RadiologistReview(models.Model):
+    """
+    Radiologist একটা scan review করে এখানে তার মতামত রেকর্ড করে।
+    OneToOne রাখা হয়েছে -- একটা scan-এ একবারই final review হবে ধরে নিচ্ছি
+    (ভবিষ্যতে একাধিক review লাগলে ForeignKey-তে বদলানো যাবে)।
+    """
+
+    STATUS_CHOICES = [
+        ("approved", "Approved — AI ফলাফল সঠিক"),
+        ("rejected", "Rejected — AI ফলাফল ভুল"),
+        ("modified", "Modified — radiologist সংশোধন করেছে"),
+    ]
+
+    scan = models.OneToOneField(
+        MRIScan, on_delete=models.CASCADE, related_name="radiologist_review"
+    )
+    radiologist = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="reviews",
+        limit_choices_to={"role": "radiologist"},
+    )
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES)
+    observations = models.TextField(
+        blank=True, help_text="Radiologist-এর ক্লিনিক্যাল পর্যবেক্ষণ/মন্তব্য"
+    )
+    corrected_classification = models.CharField(
+        max_length=50,
+        blank=True,
+        null=True,
+        help_text="AI-এর classification ভুল হলে radiologist-এর সঠিক মত (ঐচ্ছিক)",
+    )
+    reviewed_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Review of Scan #{self.scan_id} by {self.radiologist} — {self.status}"
