@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import MRIScan, AIAnalysisResult, RadiologistReview
+from .models import MRIScan, AIAnalysisResult, RadiologistReview, DoctorConsultation
 
 
 class AIAnalysisResultSerializer(serializers.ModelSerializer):
@@ -49,9 +49,37 @@ class RadiologistReviewCreateSerializer(serializers.ModelSerializer):
         fields = ["status", "observations", "corrected_classification"]
 
 
+class DoctorConsultationSerializer(serializers.ModelSerializer):
+    """Doctor consultation দেখানোর জন্য (read)।"""
+
+    doctor = serializers.CharField(source="doctor.username", read_only=True)
+
+    class Meta:
+        model = DoctorConsultation
+        fields = [
+            "id",
+            "doctor",
+            "clinical_assessment",
+            "treatment_recommendation",
+            "consulted_at",
+        ]
+
+
+class DoctorConsultationCreateSerializer(serializers.ModelSerializer):
+    """
+    Doctor consultation জমা দেওয়ার জন্য (write)। scan ও doctor client থেকে
+    নেওয়া হয় না -- view থেকে সেট হয় (URL-এর scan_id + request.user)।
+    """
+
+    class Meta:
+        model = DoctorConsultation
+        fields = ["clinical_assessment", "treatment_recommendation"]
+
+
 class MRIScanSerializer(serializers.ModelSerializer):
     analysis = AIAnalysisResultSerializer(read_only=True)
     radiologist_review = RadiologistReviewSerializer(read_only=True)
+    doctor_consultation = DoctorConsultationSerializer(read_only=True)
 
     class Meta:
         model = MRIScan
@@ -64,6 +92,7 @@ class MRIScanSerializer(serializers.ModelSerializer):
             "uploaded_at",
             "analysis",
             "radiologist_review",
+            "doctor_consultation",
         ]
         read_only_fields = ["uploaded_by"]
 

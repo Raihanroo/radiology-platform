@@ -81,3 +81,32 @@ class RadiologistReview(models.Model):
 
     def __str__(self):
         return f"Review of Scan #{self.scan_id} by {self.radiologist} — {self.status}"
+
+
+class DoctorConsultation(models.Model):
+    """
+    Radiologist review হয়ে যাওয়ার পর Doctor সেই scan-এ চূড়ান্ত ক্লিনিক্যাল
+    মূল্যায়ন ও চিকিৎসা পরামর্শ যোগ করে (infographic workflow ধাপ ৫)।
+    OneToOne -- একটা scan-এ একবারই doctor consultation হবে ধরে নিচ্ছি।
+    """
+
+    scan = models.OneToOneField(
+        MRIScan, on_delete=models.CASCADE, related_name="doctor_consultation"
+    )
+    doctor = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="consultations",
+        limit_choices_to={"role": "doctor"},
+    )
+    clinical_assessment = models.TextField(
+        help_text="Doctor-এর সামগ্রিক ক্লিনিক্যাল মূল্যায়ন (AI + radiologist review বিবেচনা করে)"
+    )
+    treatment_recommendation = models.TextField(
+        blank=True, help_text="প্রস্তাবিত চিকিৎসা পরিকল্পনা / পরবর্তী পদক্ষেপ"
+    )
+    consulted_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Consultation of Scan #{self.scan_id} by {self.doctor}"

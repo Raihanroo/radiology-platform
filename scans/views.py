@@ -5,13 +5,14 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status, generics
 from rest_framework.parsers import MultiPartParser, FormParser
-from accounts.permissions import IsPatient, IsRadiologist
+from accounts.permissions import IsPatient, IsRadiologist, IsDoctor
 
-from .models import MRIScan, AIAnalysisResult, RadiologistReview
+from .models import MRIScan, AIAnalysisResult, RadiologistReview, DoctorConsultation
 from .serializers import (
     MRIScanSerializer,
     ScanUploadSerializer,
     RadiologistReviewCreateSerializer,
+    DoctorConsultationCreateSerializer,
 )
 from .inference import predict_tumor, predict_segmentation
 
@@ -159,6 +160,59 @@ class ScanReviewCreateView(APIView):
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         serializer.save(scan=scan, radiologist=request.user)
+
+        response_serializer = MRIScanSerializer(scan)
+        return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+
+
+class ConsultationQueueListView(generics.ListAPIView):
+    """
+    GET /api/scans/consultation-queue/
+    শুধু doctor দেখতে পারবে -- এমন সব scan যেগুলোর radiologist review
+    হয়ে গেছে কিন্তু এখনো doctor consultation হয়নি (workflow ধাপ ৪ -> ৫)।
+    """
+
+    serializer_class = MRIScanSerializer
+    permission_classes = [IsDoctor]
+
+    def get_queryset(self):
+        return MRIScan.objects.filter(
+            radiologist_review__isnull=False, doctor_consultation__isnull=True
+        ).order_by("radiologist_review__reviewed_at")
+
+
+class ScanConsultCreateView(APIView):
+    """
+    POST /api/scans/<scan_id>/consult/
+    Doctor একটা নির্দিষ্ট scan-এর জন্য চূড়ান্ত ক্লিনিক্যাল মূল্যায়ন ও
+    চিকিৎসা পরামর্শ জমা দেয়।
+    """
+
+    permission_classes = [IsDoctor]
+
+    def post(self, request, scan_id):
+        scan = get_object_or_404(MRIScan, id=scan_id)
+
+        # Radiologist review ছাড়া doctor consultation করা যাবে না
+        # (workflow-এর ক্রম মেনে চলার জন্য)
+        if not hasattr(scan, "radiologist_review"):
+            return Response(
+                {"error": "এই scan-টার radiologist review এখনো হয়নি।"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # একটা scan-এ ইতিমধ্যে consultation থাকলে দ্বিতীয়বার করা যাবে না
+        if hasattr(scan, "doctor_consultation"):
+            return Response(
+                {"error": "এই scan-টা ইতিমধ্যে consult করা হয়ে গেছে।"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = DoctorConsultationCreateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer.save(scan=scan, doctor=request.user)
 
         response_serializer = MRIScanSerializer(scan)
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
