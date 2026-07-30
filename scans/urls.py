@@ -9,6 +9,13 @@ from .views import (
     ScanConsultCreateView,
     GenerateReportView,
     ApproveReportView,
+    ClinicalSummaryView,
+    InterpretResultView,
+    DraftReportView,
+    CompareProgressionView,
+    AskMedicalQuestionView,
+    FollowUpRecommendationsView,
+    PatientExplanationView,
 )
 
 urlpatterns = [
@@ -40,5 +47,41 @@ urlpatterns = [
         "<int:scan_id>/approve-report/",
         ApproveReportView.as_view(),
         name="scan-approve-report",
+    ),
+    # ---- LLM Clinical Assistant endpoints ----
+    path(
+        "<int:scan_id>/clinical-summary/",
+        ClinicalSummaryView.as_view(),
+        name="scan-clinical-summary",
+    ),
+    path(
+        "<int:scan_id>/interpret-result/",
+        InterpretResultView.as_view(),
+        name="scan-interpret-result",
+    ),
+    path(
+        "<int:scan_id>/draft-report/",
+        DraftReportView.as_view(),
+        name="scan-draft-report",
+    ),
+    path(
+        "<int:scan_id>/compare/<int:other_scan_id>/",
+        CompareProgressionView.as_view(),
+        name="scan-compare-progression",
+    ),
+    path(
+        "<int:scan_id>/ask/",
+        AskMedicalQuestionView.as_view(),
+        name="scan-ask-question",
+    ),
+    path(
+        "<int:scan_id>/follow-up-recommendations/",
+        FollowUpRecommendationsView.as_view(),
+        name="scan-follow-up-recommendations",
+    ),
+    path(
+        "<int:scan_id>/explanation/",
+        PatientExplanationView.as_view(),
+        name="scan-patient-explanation",
     ),
 ]

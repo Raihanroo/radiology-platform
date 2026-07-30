@@ -4,9 +4,14 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework import status, generics
+from rest_framework import status, generics, permissions
 from rest_framework.parsers import MultiPartParser, FormParser
-from accounts.permissions import IsPatient, IsRadiologist, IsDoctor
+from accounts.permissions import (
+    IsPatient,
+    IsRadiologist,
+    IsDoctor,
+    IsRadiologistOrDoctor,
+)
 
 from .models import (
     MRIScan,
@@ -23,6 +28,7 @@ from .serializers import (
     FinalReportCreateSerializer,
 )
 from .inference import predict_tumor, predict_segmentation
+from . import llm_service
 
 
 class ScanAnalyzeView(APIView):
@@ -308,3 +314,254 @@ class ApproveReportView(APIView):
 
         response_serializer = MRIScanSerializer(scan, context={"request": request})
         return Response(response_serializer.data, status=status.HTTP_200_OK)
+
+
+# ===========================================================================
+# LLM Clinical Assistant endpoints (Gemini-powered)
+#
+# সবগুলোতেই একটা common প্যাটার্ন: llm_service ফাংশন কল করা try/except-এ মোড়া
+# থাকে, কারণ এটা একটা বাইরের API কল (network issue, rate limit, ইত্যাদি হতে
+# পারে) -- ব্যর্থ হলে পুরো request 500 করে দেওয়া হয় স্পষ্ট error message সহ।
+# ===========================================================================
+
+
+class ClinicalSummaryView(APIView):
+    """
+    GET /api/scans/<scan_id>/clinical-summary/
+    Radiologist/Doctor -- এখন পর্যন্ত scan-এ যা রেকর্ড হয়েছে তার সংক্ষিপ্ত
+    ক্লিনিক্যাল সামারি (LLM Clinical Assistant ফিচার ১)।
+    """
+
+    permission_classes = [IsRadiologistOrDoctor]
+
+    def get(self, request, scan_id):
+        scan = get_object_or_404(MRIScan, id=scan_id)
+        if not hasattr(scan, "analysis"):
+            return Response(
+                {"error": "এই scan-এর জন্য এখনো কোনো AI analysis নেই।"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            summary = llm_service.generate_clinical_summary(scan)
+        except Exception as e:
+            return Response(
+                {"error": f"Clinical summary তৈরি করা যায়নি: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        return Response({"summary": summary}, status=status.HTTP_200_OK)
+
+
+class InterpretResultView(APIView):
+    """
+    GET /api/scans/<scan_id>/interpret-result/
+    Radiologist/Doctor -- AI classification/segmentation ফলাফলের ক্লিনিক্যাল
+    ব্যাখ্যা (LLM Clinical Assistant ফিচার ২)।
+    """
+
+    permission_classes = [IsRadiologistOrDoctor]
+
+    def get(self, request, scan_id):
+        scan = get_object_or_404(MRIScan, id=scan_id)
+        if not hasattr(scan, "analysis"):
+            return Response(
+                {"error": "এই scan-এর জন্য এখনো কোনো AI analysis নেই।"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            interpretation = llm_service.interpret_ai_result(scan)
+        except Exception as e:
+            return Response(
+                {"error": f"Result interpretation তৈরি করা যায়নি: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        return Response({"interpretation": interpretation}, status=status.HTTP_200_OK)
+
+
+class DraftReportView(APIView):
+    """
+    GET /api/scans/<scan_id>/draft-report/
+    Doctor -- doctor consultation হয়ে যাওয়ার পর final report-এর জন্য একটা
+    LLM-generated draft (LLM Clinical Assistant ফিচার ৩)। এটা শুধু একটা
+    starting point -- doctor edit করে generate-report endpoint-এ পাঠাবে,
+    এটা নিজে থেকে কোনো report সেভ করে না।
+    """
+
+    permission_classes = [IsDoctor]
+
+    def get(self, request, scan_id):
+        scan = get_object_or_404(MRIScan, id=scan_id)
+        if not hasattr(scan, "doctor_consultation"):
+            return Response(
+                {"error": "এই scan-টার doctor consultation এখনো হয়নি।"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            draft = llm_service.draft_final_report_text(scan)
+        except Exception as e:
+            return Response(
+                {"error": f"Draft report তৈরি করা যায়নি: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        return Response({"draft": draft}, status=status.HTTP_200_OK)
+
+
+class CompareProgressionView(APIView):
+    """
+    GET /api/scans/<scan_id>/compare/<other_scan_id>/
+    Radiologist/Doctor -- একই patient-এর দুইটা scan-এর মধ্যে tumor
+    progression তুলনা (LLM Clinical Assistant ফিচার ৪)।
+    """
+
+    permission_classes = [IsRadiologistOrDoctor]
+
+    def get(self, request, scan_id, other_scan_id):
+        current_scan = get_object_or_404(MRIScan, id=scan_id)
+        previous_scan = get_object_or_404(MRIScan, id=other_scan_id)
+
+        if current_scan.patient_id != previous_scan.patient_id:
+            return Response(
+                {"error": "দুইটা scan একই patient-এর না -- তুলনা করা যাবে না।"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not hasattr(current_scan, "analysis") or not hasattr(
+            previous_scan, "analysis"
+        ):
+            return Response(
+                {"error": "দুইটা scan-এরই AI analysis থাকা দরকার তুলনার জন্য।"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        # current_scan সবসময় পরের scan হওয়া উচিত -- না হলে swap করে নিচ্ছি
+        if current_scan.uploaded_at < previous_scan.uploaded_at:
+            current_scan, previous_scan = previous_scan, current_scan
+
+        try:
+            comparison = llm_service.compare_scan_progression(
+                current_scan, previous_scan
+            )
+        except Exception as e:
+            return Response(
+                {"error": f"Comparison তৈরি করা যায়নি: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        return Response({"comparison": comparison}, status=status.HTTP_200_OK)
+
+
+class AskMedicalQuestionView(APIView):
+    """
+    POST /api/scans/<scan_id>/ask/  { "question": "..." }
+    Patient (শুধু নিজের scan, রিপোর্ট approved হলে) অথবা Radiologist/Doctor
+    (যেকোনো scan) -- scan-এর ডেটার ভিত্তিতে প্রশ্নের উত্তর (LLM Clinical
+    Assistant ফিচার ৫: Medical Q&A)।
+    """
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, scan_id):
+        scan = get_object_or_404(MRIScan, id=scan_id)
+
+        if request.user.role == "patient":
+            if scan.patient_id != request.user.id:
+                return Response(
+                    {"error": "শুধু নিজের scan সম্পর্কে প্রশ্ন করা যাবে।"},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+            if (
+                not hasattr(scan, "final_report")
+                or scan.final_report.status != "approved"
+            ):
+                return Response(
+                    {"error": "রিপোর্ট approved হওয়ার আগে প্রশ্ন করা যাবে না।"},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+        elif request.user.role not in ("radiologist", "doctor"):
+            return Response(
+                {
+                    "error": "শুধু patient (নিজের scan) অথবা radiologist/doctor প্রশ্ন করতে পারবে।"
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        question = request.data.get("question", "").strip()
+        if not question:
+            return Response(
+                {"error": "question ফিল্ড খালি রাখা যাবে না।"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not hasattr(scan, "analysis"):
+            return Response(
+                {"error": "এই scan-এর জন্য এখনো কোনো AI analysis নেই।"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            answer = llm_service.answer_medical_question(scan, question)
+        except Exception as e:
+            return Response(
+                {"error": f"উত্তর তৈরি করা যায়নি: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        return Response(
+            {"question": question, "answer": answer}, status=status.HTTP_200_OK
+        )
+
+
+class FollowUpRecommendationsView(APIView):
+    """
+    GET /api/scans/<scan_id>/follow-up-recommendations/
+    Doctor -- final report-এর ভিত্তিতে সম্ভাব্য follow-up পদক্ষেপের সাজেশন
+    (LLM Clinical Assistant ফিচার ৬)। এগুলো শুধু সাজেশন -- doctor নিজে
+    যাচাই করে গ্রহণ/বাতিল করবে।
+    """
+
+    permission_classes = [IsDoctor]
+
+    def get(self, request, scan_id):
+        scan = get_object_or_404(MRIScan, id=scan_id)
+        if not hasattr(scan, "final_report"):
+            return Response(
+                {"error": "এই scan-এর জন্য এখনো কোনো final report তৈরি হয়নি।"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            recommendations = llm_service.suggest_follow_up_recommendations(scan)
+        except Exception as e:
+            return Response(
+                {"error": f"Follow-up সাজেশন তৈরি করা যায়নি: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        return Response({"recommendations": recommendations}, status=status.HTTP_200_OK)
+
+
+class PatientExplanationView(APIView):
+    """
+    GET /api/scans/<scan_id>/explanation/
+    Patient -- শুধু নিজের scan, এবং শুধু final report approved হলেই সহজ ভাষায়
+    ব্যাখ্যা পাওয়া যাবে (LLM Clinical Assistant ফিচার ৭: Patient Friendly
+    Explanation) -- ঠিক "Only the Final Approved Report is delivered to the
+    Patient" নিয়ম অনুযায়ী।
+    """
+
+    permission_classes = [IsPatient]
+
+    def get(self, request, scan_id):
+        scan = get_object_or_404(MRIScan, id=scan_id)
+        if scan.patient_id != request.user.id:
+            return Response(
+                {"error": "শুধু নিজের scan-এর ব্যাখ্যা দেখা যাবে।"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if not hasattr(scan, "final_report") or scan.final_report.status != "approved":
+            return Response(
+                {
+                    "error": "রিপোর্ট এখনো approved হয়নি -- ব্যাখ্যা এখনো পাওয়া যাবে না।"
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            explanation = llm_service.generate_patient_friendly_explanation(scan)
+        except Exception as e:
+            return Response(
+                {"error": f"ব্যাখ্যা তৈরি করা যায়নি: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        return Response({"explanation": explanation}, status=status.HTTP_200_OK)

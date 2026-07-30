@@ -38,16 +38,16 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-    'rest_framework',
-    'rest_framework_simplejwt',
-    'corsheaders',
-    'accounts',
-    'scans',
+    "rest_framework",
+    "rest_framework_simplejwt",
+    "corsheaders",
+    "accounts",
+    "scans",
 ]
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
-    'corsheaders.middleware.CorsMiddleware',
+    "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -79,17 +79,32 @@ WSGI_APPLICATION = "core.wsgi.application"
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": config("DB_NAME"),
-        "USER": config("DB_USER"),
-        "PASSWORD": config("DB_PASSWORD"),
-        "HOST": config("DB_HOST"),
-        "PORT": config("DB_PORT"),
-        "OPTIONS": {"sslmode": "require"},
+import sys
+
+if "test" in sys.argv or "pytest" in sys.modules:
+    # টেস্ট চালানোর সময় production Neon DB-তে হিট না করে দ্রুত, isolated
+    # in-memory SQLite ব্যবহার করি। এতে ৩টা লাভ:
+    #   ১. CI/অফলাইন পরিবেশেও টেস্ট চলবে (Neon-এর নেটওয়ার্ক অ্যাক্সেস না থাকলেও)
+    #   ২. টেস্ট রান অনেক দ্রুত হয় (network round-trip নেই)
+    #   ৩. ভুলেও production ডেটার সাথে টেস্ট ডেটা মিশে যাবে না
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": ":memory:",
+        }
     }
-}
+else:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": config("DB_NAME"),
+            "USER": config("DB_USER"),
+            "PASSWORD": config("DB_PASSWORD"),
+            "HOST": config("DB_HOST"),
+            "PORT": config("DB_PORT"),
+            "OPTIONS": {"sslmode": "require"},
+        }
+    }
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
@@ -138,15 +153,17 @@ CORS_ALLOW_ALL_ORIGINS = True
 
 # REST Framework + JWT
 REST_FRAMEWORK = {
-    'DEFAULT_AUTHENTICATION_CLASSES': [
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework_simplejwt.authentication.JWTAuthentication",
     ],
 }
 
 # Custom User Model (এখনই বলে রাখছি, পরের ধাপে accounts/models.py বানাব)
-AUTH_USER_MODEL = 'accounts.User'
+AUTH_USER_MODEL = "accounts.User"
 
 
 # Media files (uploaded MRI scans, masks, overlays)
-MEDIA_URL = '/media/'
-MEDIA_ROOT = BASE_DIR / 'media'
+MEDIA_URL = "/media/"
+MEDIA_ROOT = BASE_DIR / "media"
+
+GEMINI_API_KEY = config("GEMINI_API_KEY")
