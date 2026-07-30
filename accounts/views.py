@@ -8,6 +8,10 @@ from .serializers import (
     CustomTokenObtainPairSerializer,
 )
 
+from rest_framework import generics
+from .permissions import IsAdminRole
+from .serializers import AdminUserSerializer
+
 
 class RegisterView(generics.CreateAPIView):
     """
@@ -42,3 +46,28 @@ class CustomTokenObtainPairView(TokenObtainPairView):
     """
 
     serializer_class = CustomTokenObtainPairSerializer
+
+
+class AdminUserListView(generics.ListCreateAPIView):
+    """
+    GET /api/auth/users/ -> অ্যাডমিন সব ইউজারের লিস্ট দেখবে।
+    POST /api/auth/users/ -> অ্যাডমিন নতুন ডাক্তার/রেডিওলজিস্ট অ্যাকাউন্ট তৈরি করবে।
+    """
+
+    queryset = User.objects.all().order_by("-date_joined")
+    serializer_class = AdminUserSerializer
+    permission_classes = [IsAdminRole]
+
+
+class AdminUserDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    GET /api/auth/users/<id>/ -> নির্দিষ্ট ইউজারের ডিটেইলস দেখা।
+    PATCH /api/auth/users/<id>/ -> ইউজারের রোল পরিবর্তন বা ডিঅ্যাক্টিভেট (is_active=False) করা।
+    DELETE /api/auth/users/<id>/ -> ইউজার ডিলিট করা।
+    """
+
+    queryset = User.objects.all()
+    serializer_class = AdminUserSerializer
+    permission_classes = [IsAdminRole]
+
+

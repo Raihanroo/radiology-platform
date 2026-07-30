@@ -91,3 +91,24 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
             "role": self.user.role,
         }
         return data
+
+
+class AdminUserSerializer(serializers.ModelSerializer):
+    """
+    অ্যাডমিন যখন সব ইউজার দেখবে বা রোল আপডেট করবে তখন এটি ব্যবহৃত হবে।
+    """
+
+    class Meta:
+        model = User
+        fields = [
+            "id",
+            "username",
+            "email",
+            "first_name",
+            "last_name",
+            "phone_number",
+            "role",
+            "is_active",
+            "date_joined",
+        ]
+        read_only_fields = ["id", "username", "date_joined"]
