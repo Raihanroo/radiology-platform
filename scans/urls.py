@@ -16,6 +16,7 @@ from .views import (
     AskMedicalQuestionView,
     FollowUpRecommendationsView,
     PatientExplanationView,
+    AdminDashboardStatsView,
 )
 
 urlpatterns = [
@@ -84,4 +85,6 @@ urlpatterns = [
         PatientExplanationView.as_view(),
         name="scan-patient-explanation",
     ),
+    # <--- ২. নিচের লাইনটি নতুন যুক্ত করা হয়েছে
+    path("admin-stats/", AdminDashboardStatsView.as_view(), name="admin-stats"),
 ]

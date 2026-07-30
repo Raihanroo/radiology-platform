@@ -1,5 +1,6 @@
 from django.db import models
 from accounts.models import User
+from django.conf import settings
 
 
 class MRIScan(models.Model):
@@ -159,3 +160,30 @@ class FinalReport(models.Model):
 
     def __str__(self):
         return f"Final Report of Scan #{self.scan_id} — {self.status}"
+
+
+class AuditLog(models.Model):
+    ACTION_CHOICES = [
+        ("upload", "Scan Uploaded"),
+        ("review", "Scan Reviewed"),
+        ("consult", "Doctor Consulted"),
+        ("generate_report", "Report Generated"),
+        ("approve_report", "Report Approved"),
+    ]
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="audit_logs",
+    )
+    scan = models.ForeignKey("MRIScan", on_delete=models.CASCADE, null=True, blank=True)
+    action = models.CharField(max_length=50, choices=ACTION_CHOICES)
+    details = models.TextField(blank=True, null=True)
+    timestamp = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-timestamp"]
+
+    def __str__(self):
+        return f"{self.user} - {self.action} - {self.timestamp}"

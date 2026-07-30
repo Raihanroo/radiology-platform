@@ -29,6 +29,9 @@ from .serializers import (
 )
 from .inference import predict_tumor, predict_segmentation
 from . import llm_service
+from .models import AuditLog
+from accounts.models import User
+from accounts.permissions import IsAdminRole
 
 
 class ScanAnalyzeView(APIView):
@@ -312,6 +315,14 @@ class ApproveReportView(APIView):
         report.approved_at = timezone.now()
         report.save()
 
+        # --- এই লাইনটি যুক্ত করুন ---
+        AuditLog.objects.create(
+            user=request.user,
+            scan=scan,
+            action="approve_report",
+            details=f"Report approved for scan {scan.id} with diagnosis {report.final_diagnosis}",
+        )
+
         response_serializer = MRIScanSerializer(scan, context={"request": request})
         return Response(response_serializer.data, status=status.HTTP_200_OK)
 
@@ -565,3 +576,25 @@ class PatientExplanationView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
         return Response({"explanation": explanation}, status=status.HTTP_200_OK)
+
+
+class AdminDashboardStatsView(APIView):
+    """
+    GET /api/scans/admin-stats/
+    শুধু Admin বা Super Admin দেখতে পারবে।
+    """
+
+    permission_classes = [IsAdminRole]  # <--- এখানেও IsAdminRole হবে
+
+    def get(self, request):
+        stats = {
+            "total_patients": User.objects.filter(role="patient").count(),
+            "total_radiologists": User.objects.filter(role="radiologist").count(),
+            "total_doctors": User.objects.filter(role="doctor").count(),
+            "total_scans": MRIScan.objects.count(),
+            "pending_reviews": MRIScan.objects.filter(
+                analysis__needs_review=True, radiologist_review__isnull=True
+            ).count(),
+            "approved_reports": FinalReport.objects.filter(status="approved").count(),
+        }
+        return Response(stats, status=status.HTTP_200_OK)
