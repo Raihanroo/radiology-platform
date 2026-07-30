@@ -19,6 +19,7 @@ from .models import (
     RadiologistReview,
     DoctorConsultation,
     FinalReport,
+    Appointment 
 )
 from .serializers import (
     MRIScanSerializer,
@@ -26,6 +27,7 @@ from .serializers import (
     RadiologistReviewCreateSerializer,
     DoctorConsultationCreateSerializer,
     FinalReportCreateSerializer,
+    AppointmentSerializer
 )
 from .inference import predict_tumor, predict_segmentation
 from . import llm_service
@@ -598,3 +600,43 @@ class AdminDashboardStatsView(APIView):
             "approved_reports": FinalReport.objects.filter(status="approved").count(),
         }
         return Response(stats, status=status.HTTP_200_OK)
+
+
+class BookAppointmentView(APIView):
+    """
+    POST /api/scans/<scan_id>/book-appointment/
+    Patient তার অনুমোদিত রিপোর্টের জন্য ডাক্তারের সাথে ফলো-আপ অ্যাপয়েন্টমেন্ট বুক করবে।
+    """
+
+    permission_classes = [IsPatient]
+
+    def post(self, request, scan_id):
+        scan = get_object_or_404(MRIScan, id=scan_id, patient=request.user)
+
+        # রিপোর্ট অ্যাপ্রুভড না হলে অ্যাপয়েন্টমেন্ট করা যাবে না
+        if not hasattr(scan, "final_report") or scan.final_report.status != "approved":
+            return Response(
+                {
+                    "error": "শুধুমাত্র অনুমোদিত (approved) রিপোর্টের জন্য ফলো-আপ বুক করা যাবে।"
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = AppointmentSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        # ক্লায়েন্ট কোন ডাক্তারের আইডি দিয়েছে তা চেক করা
+        doctor_id = request.data.get("doctor")
+        try:
+            doctor = User.objects.get(id=doctor_id, role="doctor")
+        except User.DoesNotExist:
+            return Response(
+                {"error": "এই আইডির কোনো ডাক্তার পাওয়া যায়নি।"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        serializer.save(
+            scan=scan, patient=request.user, doctor=doctor, status="scheduled"
+        )
+        return Response(serializer.data, status=status.HTTP_201_CREATED)

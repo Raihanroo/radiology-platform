@@ -22,6 +22,8 @@ class AIAnalysisResultSerializer(serializers.ModelSerializer):
             "needs_review",
             "processed_at",
         ]
+        
+from .models import Appointment 
 
 
 class RadiologistReviewSerializer(serializers.ModelSerializer):
@@ -170,3 +172,9 @@ class ScanUploadSerializer(serializers.ModelSerializer):
     class Meta:
         model = MRIScan
         fields = ["original_image", "scan_type"]
+
+class AppointmentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Appointment
+        fields = '__all__'
+        read_only_fields = ['status', 'created_at']
