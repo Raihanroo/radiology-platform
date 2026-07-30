@@ -1,18 +1,26 @@
 import os
 from django.conf import settings
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status, generics
 from rest_framework.parsers import MultiPartParser, FormParser
 from accounts.permissions import IsPatient, IsRadiologist, IsDoctor
 
-from .models import MRIScan, AIAnalysisResult, RadiologistReview, DoctorConsultation
+from .models import (
+    MRIScan,
+    AIAnalysisResult,
+    RadiologistReview,
+    DoctorConsultation,
+    FinalReport,
+)
 from .serializers import (
     MRIScanSerializer,
     ScanUploadSerializer,
     RadiologistReviewCreateSerializer,
     DoctorConsultationCreateSerializer,
+    FinalReportCreateSerializer,
 )
 from .inference import predict_tumor, predict_segmentation
 
@@ -84,7 +92,7 @@ class ScanAnalyzeView(APIView):
             analysis.save()
 
         # ৫. Response পাঠানো
-        response_serializer = MRIScanSerializer(scan)
+        response_serializer = MRIScanSerializer(scan, context={"request": request})
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
 
 
@@ -161,7 +169,7 @@ class ScanReviewCreateView(APIView):
 
         serializer.save(scan=scan, radiologist=request.user)
 
-        response_serializer = MRIScanSerializer(scan)
+        response_serializer = MRIScanSerializer(scan, context={"request": request})
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
 
 
@@ -214,5 +222,89 @@ class ScanConsultCreateView(APIView):
 
         serializer.save(scan=scan, doctor=request.user)
 
-        response_serializer = MRIScanSerializer(scan)
+        response_serializer = MRIScanSerializer(scan, context={"request": request})
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+
+
+class GenerateReportView(APIView):
+    """
+    POST /api/scans/<scan_id>/generate-report/
+    Doctor consultation হয়ে যাওয়ার পর, doctor এখান থেকে চূড়ান্ত রিপোর্ট তৈরি করে
+    (status='draft' -- এখনো patient দেখতে পাবে না, আগে approve করতে হবে)।
+
+    final_diagnosis auto-নির্ধারিত হয়: radiologist-এর corrected_classification
+    থাকলে সেটা, নাহলে AI-এর classification।
+    """
+
+    permission_classes = [IsDoctor]
+
+    def post(self, request, scan_id):
+        scan = get_object_or_404(MRIScan, id=scan_id)
+
+        # Doctor consultation ছাড়া final report generate করা যাবে না
+        if not hasattr(scan, "doctor_consultation"):
+            return Response(
+                {"error": "এই scan-টার doctor consultation এখনো হয়নি।"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if hasattr(scan, "final_report"):
+            return Response(
+                {"error": "এই scan-এর জন্য final report ইতিমধ্যে তৈরি হয়ে গেছে।"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = FinalReportCreateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        # final_diagnosis নির্ধারণ: radiologist-এর সংশোধন থাকলে সেটাই চূড়ান্ত ধরা হয়
+        radiologist_review = getattr(scan, "radiologist_review", None)
+        if radiologist_review and radiologist_review.corrected_classification:
+            final_diagnosis = radiologist_review.corrected_classification
+        else:
+            final_diagnosis = scan.analysis.classification
+
+        serializer.save(
+            scan=scan,
+            generated_by=request.user,
+            final_diagnosis=final_diagnosis,
+            status="draft",
+        )
+
+        response_serializer = MRIScanSerializer(scan, context={"request": request})
+        return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+
+
+class ApproveReportView(APIView):
+    """
+    POST /api/scans/<scan_id>/approve-report/
+    Draft report-কে approve করে -- এর পরেই শুধু patient এই report দেখতে পারবে
+    ("Only the Final Approved Report is delivered to the Patient")।
+    """
+
+    permission_classes = [IsDoctor]
+
+    def post(self, request, scan_id):
+        scan = get_object_or_404(MRIScan, id=scan_id)
+
+        if not hasattr(scan, "final_report"):
+            return Response(
+                {"error": "এই scan-এর জন্য এখনো কোনো final report তৈরি হয়নি।"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        report = scan.final_report
+        if report.status == "approved":
+            return Response(
+                {"error": "এই report ইতিমধ্যে approved।"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        report.status = "approved"
+        report.approved_by = request.user
+        report.approved_at = timezone.now()
+        report.save()
+
+        response_serializer = MRIScanSerializer(scan, context={"request": request})
+        return Response(response_serializer.data, status=status.HTTP_200_OK)

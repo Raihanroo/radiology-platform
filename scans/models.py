@@ -110,3 +110,52 @@ class DoctorConsultation(models.Model):
 
     def __str__(self):
         return f"Consultation of Scan #{self.scan_id} by {self.doctor}"
+
+
+class FinalReport(models.Model):
+    """
+    AI Analysis + Radiologist Review + Doctor Consultation -- এই তিনটা ধাপের
+    তথ্য একত্র করে চূড়ান্ত রিপোর্ট (infographic workflow ধাপ ৬)।
+
+    গুরুত্বপূর্ণ: status='draft' অবস্থায় patient এই রিপোর্ট দেখতে পারবে না,
+    শুধু status='approved' হওয়ার পরেই patient-কে দেখানো হবে
+    ("Only the Final Approved Report is delivered to the Patient")।
+    """
+
+    STATUS_CHOICES = [
+        ("draft", "Draft — এখনো approve হয়নি"),
+        ("approved", "Approved — patient দেখতে পারবে"),
+    ]
+
+    scan = models.OneToOneField(
+        MRIScan, on_delete=models.CASCADE, related_name="final_report"
+    )
+    final_diagnosis = models.CharField(
+        max_length=50,
+        help_text="চূড়ান্ত diagnosis -- radiologist-এর corrected_classification "
+        "থাকলে সেটা, নাহলে AI-এর classification (view-তে auto-নির্ধারিত)",
+    )
+    summary = models.TextField(
+        help_text="Doctor-এর লেখা সামগ্রিক সারসংক্ষেপ, patient-এর জন্য বোধগম্য ভাষায়"
+    )
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="draft")
+    generated_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="generated_reports",
+        limit_choices_to={"role": "doctor"},
+    )
+    approved_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="approved_reports",
+        limit_choices_to={"role": "doctor"},
+    )
+    generated_at = models.DateTimeField(auto_now_add=True)
+    approved_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f"Final Report of Scan #{self.scan_id} — {self.status}"

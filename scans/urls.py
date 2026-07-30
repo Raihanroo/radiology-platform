@@ -7,6 +7,8 @@ from .views import (
     ReviewedByMeListView,
     ConsultationQueueListView,
     ScanConsultCreateView,
+    GenerateReportView,
+    ApproveReportView,
 )
 
 urlpatterns = [
@@ -28,5 +30,15 @@ urlpatterns = [
         "<int:scan_id>/consult/",
         ScanConsultCreateView.as_view(),
         name="scan-consult-create",
+    ),
+    path(
+        "<int:scan_id>/generate-report/",
+        GenerateReportView.as_view(),
+        name="scan-generate-report",
+    ),
+    path(
+        "<int:scan_id>/approve-report/",
+        ApproveReportView.as_view(),
+        name="scan-approve-report",
     ),
 ]
