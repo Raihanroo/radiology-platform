@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import axios from 'axios';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom'; // Link ইম্পোর্ট করা হয়েছে
 
 export default function Login() {
   const [username, setUsername] = useState('');
@@ -34,7 +34,6 @@ export default function Login() {
   };
 
   return (
-    // w-full এবং h-screen যোগ করা হয়েছে যাতে ১০০% স্ক্রিন কভার করে
     <div className="flex w-full h-screen items-center justify-center bg-slate-50 text-gray-900 p-4">
       <div className="w-full max-w-md p-8 space-y-6 bg-white rounded-xl shadow-lg border border-gray-100">
         <div className="text-center">
@@ -83,7 +82,7 @@ export default function Login() {
         </form>
         
         <p className="text-sm text-center text-gray-500">
-          Don't have an account? <a href="#" className="text-sky-600 hover:underline font-medium">Register</a>
+          Don't have an account? <Link to="/register" className="text-sky-600 hover:underline font-medium">Register</Link>
         </p>
       </div>
     </div>

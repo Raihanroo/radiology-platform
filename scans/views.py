@@ -178,7 +178,6 @@ class ScanReviewCreateView(APIView):
     """
     POST /api/scans/<scan_id>/review/
     Radiologist একটা নির্দিষ্ট scan-এর জন্য review জমা দেয়
-    (approved/rejected/modified + observations + corrected_classification)।
     """
 
     permission_classes = [IsRadiologist]
@@ -626,6 +625,29 @@ class AdminScanDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = MRIScanSerializer
     permission_classes = [IsAdminRole]
 
+    def perform_update(self, serializer):
+        instance = serializer.save()
+
+        # --- অটো-কনভার্সন লজিক (.tif থেকে .png তে কনভার্ট) ---
+        img_path = instance.original_image.path
+        try:
+            if img_path.lower().endswith(".tif") or img_path.lower().endswith(".tiff"):
+                img = Image.open(img_path)
+                if img.mode != "RGB":
+                    img = img.convert("RGB")
+
+                new_path = img_path.rsplit(".", 1)[0] + ".png"
+                img.save(new_path, "PNG")
+
+                os.remove(img_path)
+
+                instance.original_image.name = (
+                    instance.original_image.name.rsplit(".", 1)[0] + ".png"
+                )
+                instance.save()
+        except Exception as e:
+            pass
+
 
 class PatientScanDetailView(generics.RetrieveUpdateDestroyAPIView):
     """
@@ -638,3 +660,26 @@ class PatientScanDetailView(generics.RetrieveUpdateDestroyAPIView):
 
     def get_queryset(self):
         return MRIScan.objects.filter(patient=self.request.user)
+
+    def perform_update(self, serializer):
+        instance = serializer.save()
+
+        # --- অটো-কনভার্সন লজিক (.tif থেকে .png তে কনভার্ট) ---
+        img_path = instance.original_image.path
+        try:
+            if img_path.lower().endswith(".tif") or img_path.lower().endswith(".tiff"):
+                img = Image.open(img_path)
+                if img.mode != "RGB":
+                    img = img.convert("RGB")
+
+                new_path = img_path.rsplit(".", 1)[0] + ".png"
+                img.save(new_path, "PNG")
+
+                os.remove(img_path)
+
+                instance.original_image.name = (
+                    instance.original_image.name.rsplit(".", 1)[0] + ".png"
+                )
+                instance.save()
+        except Exception as e:
+            pass
