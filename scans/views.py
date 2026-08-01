@@ -82,6 +82,10 @@ class ScanAnalyzeView(APIView):
         # ১. Classification
         try:
             result = predict_tumor(img_path)
+            # --- DEBUG PRINT (এআই কী রেজাল্ট দিচ্ছে তা টার্মিনালে দেখাবে) ---
+            print(
+                f"🤖 AI Classification: {result['classification']} | Confidence: {result['confidence']}"
+            )
         except Exception as e:
             return Response(
                 {"error": f"Classification failed: {str(e)}"},
@@ -94,6 +98,9 @@ class ScanAnalyzeView(APIView):
             mask_dir = os.path.join(settings.MEDIA_ROOT, "scans", "masks")
             os.makedirs(mask_dir, exist_ok=True)
             seg_result = predict_segmentation(img_path, mask_dir)
+            # --- DEBUG PRINT (সেগমেন্টেশন রেজাল্ট টার্মিনালে দেখাবে) ---
+            if seg_result:
+                print(f"🔪 Segmentation Area: {seg_result['tumor_area_percentage']}%")
         except Exception as e:
             seg_result = None
 

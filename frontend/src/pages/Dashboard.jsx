@@ -8,14 +8,19 @@ export default function Dashboard() {
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState('');
-  const [myScans, setMyScans] = useState([]);
   
-  // Edit এবং Delete এর জন্য State
-  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-  const [scanToDelete, setScanToDelete] = useState(null);
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [scanToEdit, setScanToEdit] = useState(null);
-  const [newImage, setNewImage] = useState(null);
+  const [myScans, setMyScans] = useState([]);
+  const [reviewQueue, setReviewQueue] = useState([]);
+  
+  // রেডিওলজিস্ট রিভিউ মডালের জন্য State
+  const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
+  const [selectedScan, setSelectedScan] = useState(null);
+  const [reviewData, setReviewData] = useState({
+    status: 'approved',
+    observations: '',
+    corrected_classification: ''
+  });
+  const [reviewError, setReviewError] = useState('');
 
   const username = localStorage.getItem('username');
   const role = localStorage.getItem('role');
@@ -28,21 +33,24 @@ export default function Dashboard() {
     }
 
     if (role === 'admin' || role === 'super_admin') {
-      const fetchStats = async () => {
-        try {
-          const response = await axios.get('http://127.0.0.1:8000/api/scans/admin-stats/', {
-            headers: { Authorization: `Bearer ${token}` }
-          });
-          setStats(response.data);
-        } catch (err) {
-          console.error("Failed to fetch stats", err);
-        }
-      };
       fetchStats();
     } else if (role === 'patient') {
       fetchMyScans();
+    } else if (role === 'radiologist') {
+      fetchReviewQueue();
     }
   }, [navigate, token, role]);
+
+  const fetchStats = async () => {
+    try {
+      const response = await axios.get('http://127.0.0.1:8000/api/scans/admin-stats/', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setStats(response.data);
+    } catch (err) {
+      console.error("Failed to fetch stats", err);
+    }
+  };
 
   const fetchMyScans = async () => {
     try {
@@ -52,6 +60,17 @@ export default function Dashboard() {
       setMyScans(response.data);
     } catch (err) {
       console.error("Failed to fetch scans", err);
+    }
+  };
+
+  const fetchReviewQueue = async () => {
+    try {
+      const response = await axios.get('http://127.0.0.1:8000/api/scans/review-queue/', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setReviewQueue(response.data);
+    } catch (err) {
+      console.error("Failed to fetch review queue", err);
     }
   };
 
@@ -102,52 +121,35 @@ export default function Dashboard() {
     return `http://127.0.0.1:8000${imgPath}`;
   };
 
-  // Delete কনফার্মেশন
-  const handleDeleteClick = (scan) => {
-    setScanToDelete(scan);
-    setIsDeleteModalOpen(true);
-  };
-
-  const confirmDelete = async () => {
-    try {
-      await axios.delete(`http://127.0.0.1:8000/api/scans/my-scans/${scanToDelete.id}/`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      fetchMyScans(); // ডিলিট হওয়ার পর লিস্ট রিফ্রেশ
-      setIsDeleteModalOpen(false);
-      setScanToDelete(null);
-    } catch (err) {
-      alert("Failed to delete scan.");
-    }
-  };
-
-  // Edit লজিক
-  const handleEditClick = (scan) => {
-    setScanToEdit(scan);
-    setIsEditModalOpen(true);
-  };
-
-  const handleEditSubmit = async () => {
-    if (!newImage) {
-      alert("Please select a new image first.");
-      return;
-    }
-
-    const formData = new FormData();
-    formData.append('original_image', newImage);
+  // রেডিওলজিস্ট রিভিউ সাবমিট করার ফাংশন
+  const handleReviewSubmit = async (e) => {
+    e.preventDefault();
+    setReviewError('');
 
     try {
-      await axios.patch(`http://127.0.0.1:8000/api/scans/my-scans/${scanToEdit.id}/`, formData, {
+      await axios.post(`http://127.0.0.1:8000/api/scans/${selectedScan.id}/review/`, reviewData, {
         headers: { Authorization: `Bearer ${token}` }
       });
       
-      fetchMyScans(); // আপডেট হওয়ার পর লিস্ট রিফ্রেশ
-      setIsEditModalOpen(false);
-      setNewImage(null);
-      setScanToEdit(null);
+      setIsReviewModalOpen(false);
+      setSelectedScan(null);
+      setReviewData({ status: 'approved', observations: '', corrected_classification: '' });
+      fetchReviewQueue();
+      
     } catch (err) {
-      alert("Failed to update image.");
+      setReviewError("Failed to submit review. Please check permissions.");
+      console.error(err);
     }
+  };
+
+  const openReviewModal = (scan) => {
+    setSelectedScan(scan);
+    setReviewData({
+      status: 'approved',
+      observations: '',
+      corrected_classification: scan.analysis?.classification || ''
+    });
+    setIsReviewModalOpen(true);
   };
 
   return (
@@ -163,18 +165,11 @@ export default function Dashboard() {
           
           <div className="flex space-x-3">
             {(role === 'admin' || role === 'super_admin') && (
-              <button
-                onClick={() => navigate('/admin/users')}
-                className="px-4 py-2 font-medium text-white bg-sky-500 rounded-md hover:bg-sky-600 transition-colors"
-              >
+              <button onClick={() => navigate('/admin/users')} className="px-4 py-2 font-medium text-white bg-sky-500 rounded-md hover:bg-sky-600 transition-colors">
                 Manage Users
               </button>
             )}
-            
-            <button
-              onClick={handleLogout}
-              className="px-4 py-2 font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
-            >
+            <button onClick={handleLogout} className="px-4 py-2 font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors">
               Logout
             </button>
           </div>
@@ -184,7 +179,6 @@ export default function Dashboard() {
         {(role === 'admin' || role === 'super_admin') && (
           <div className="mt-8">
             <h2 className="text-lg font-semibold text-gray-700 mb-4">System Overview</h2>
-            
             {stats ? (
               <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                 <div onClick={() => navigate('/admin/users?role=patient')} className="p-6 bg-white rounded-lg border border-gray-200 shadow-sm hover:shadow-md hover:border-sky-200 transition-all cursor-pointer">
@@ -232,7 +226,7 @@ export default function Dashboard() {
                       <div className="flex flex-col items-center justify-center pt-5 pb-6">
                         <svg className="w-10 h-10 mb-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
                         <p className="mb-2 text-sm text-gray-500"><span className="font-semibold text-sky-600">Click to upload</span> or drag and drop</p>
-                        <p className="text-xs text-gray-400">JPG, PNG up to 10MB</p>
+                        <p className="text-xs text-gray-400">JPG, PNG, TIF up to 10MB</p>
                       </div>
                       <input id="dropzone-file" type="file" className="hidden" onChange={handleFileChange} accept="image/*" />
                     </label>
@@ -267,7 +261,6 @@ export default function Dashboard() {
                   <div className="space-y-4">
                     {myScans.map((scan) => {
                       const imageUrl = getImageUrl(scan.original_image);
-                      
                       return (
                         <div key={scan.id} className="flex items-center space-x-4 p-3 border border-gray-100 rounded-lg hover:bg-gray-50 transition-colors">
                           <img src={imageUrl} alt={`Scan ${scan.id}`} className="w-16 h-16 object-cover rounded-md border border-gray-200" />
@@ -276,28 +269,12 @@ export default function Dashboard() {
                             <p className="text-sm text-gray-500 capitalize">AI: {scan.analysis?.classification || 'Processing...'}</p>
                             <p className="text-xs text-gray-400 mt-1">{new Date(scan.uploaded_at).toLocaleDateString()}</p>
                           </div>
-                          <div className="flex flex-col space-y-2 items-end">
+                          <div>
                             {scan.final_report?.status === 'approved' ? (
                               <span className="px-2.5 py-1 text-xs font-medium rounded-full bg-sky-50 text-sky-700 border border-sky-100">Report Ready</span>
                             ) : (
                               <span className="px-2.5 py-1 text-xs font-medium rounded-full bg-yellow-50 text-yellow-700 border border-yellow-100">In Review</span>
                             )}
-                            
-                            {/* Edit এবং Delete বাটন */}
-                            <div className="flex space-x-1">
-                              <button 
-                                onClick={() => handleEditClick(scan)}
-                                className="px-2 py-1 text-xs font-medium text-sky-700 bg-sky-50 border border-sky-200 rounded hover:bg-sky-100"
-                              >
-                                Edit
-                              </button>
-                              <button 
-                                onClick={() => handleDeleteClick(scan)}
-                                className="px-2 py-1 text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded hover:bg-red-100"
-                              >
-                                Delete
-                              </button>
-                            </div>
                           </div>
                         </div>
                       );
@@ -312,58 +289,113 @@ export default function Dashboard() {
           </div>
         )}
 
-      </div>
-
-      {/* Delete Confirmation Modal (Popup) */}
-      {isDeleteModalOpen && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white p-6 rounded-lg shadow-xl max-w-sm w-full">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">নিশ্চিত করুন</h3>
-            <p className="text-gray-600 mb-6">আপনি কি সত্যি তথ্য টি আপনার ডেসবোর্ড থেকে মুছে ফেলতে চান?</p>
-            <div className="flex justify-end space-x-3">
-              <button 
-                onClick={() => setIsDeleteModalOpen(false)} 
-                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 font-medium"
-              >
-                Cancel
-              </button>
-              <button 
-                onClick={confirmDelete} 
-                className="px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600 font-medium"
-              >
-                OK, Delete
-              </button>
+        {/* Radiologist Review Queue Section */}
+        {role === 'radiologist' && (
+          <div className="mt-8">
+            <h2 className="text-lg font-semibold text-gray-700 mb-4">Pending Review Queue</h2>
+            <div className="p-6 bg-white rounded-lg border border-gray-200 shadow-sm">
+              {reviewQueue.length > 0 ? (
+                <div className="space-y-4">
+                  {reviewQueue.map((scan) => {
+                    const imageUrl = getImageUrl(scan.original_image);
+                    return (
+                      <div key={scan.id} className="flex items-center space-x-4 p-3 border border-gray-100 rounded-lg hover:bg-gray-50 transition-colors">
+                        <img src={imageUrl} alt={`Scan ${scan.id}`} className="w-20 h-20 object-cover rounded-md border border-gray-200" />
+                        <div className="flex-1">
+                          <p className="font-medium text-gray-900">Scan #{scan.id} <span className="text-xs text-gray-400 ml-2">{scan.patient}</span></p>
+                          <p className="text-sm text-gray-500 capitalize">AI Prediction: {scan.analysis?.classification} ({scan.analysis?.confidence_score ? (scan.analysis.confidence_score > 1 ? scan.analysis.confidence_score : scan.analysis.confidence_score * 100).toFixed(2) : 0}%)</p>
+                          <p className="text-xs text-red-500 mt-1">Segmentation Area: {scan.analysis?.tumor_area_percentage ? scan.analysis.tumor_area_percentage.toFixed(2) : 0}%</p>
+                        </div>
+                        <button 
+                          onClick={() => openReviewModal(scan)}
+                          className="px-4 py-2 font-medium text-white bg-sky-500 rounded-md hover:bg-sky-600 transition-colors"
+                        >
+                          Review Now
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-gray-400 text-center py-8">No pending reviews. Great job!</p>
+              )}
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Edit Image Modal (Popup) */}
-      {isEditModalOpen && (
+      </div>
+
+      {/* Radiologist Review Modal (Popup) */}
+      {isReviewModalOpen && selectedScan && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white p-6 rounded-lg shadow-xl max-w-sm w-full">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">স্ক্যানের ছবি পরিবর্তন করুন</h3>
-            <p className="text-sm text-gray-500 mb-4">Scan ID: #{scanToEdit?.id}</p>
-            <input 
-              type="file" 
-              onChange={(e) => setNewImage(e.target.files[0])} 
-              accept="image/*" 
-              className="mb-4 w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-sky-50 file:text-sky-700 hover:file:bg-sky-100"
-            />
-            <div className="flex justify-end space-x-3 mt-6">
-              <button 
-                onClick={() => setIsEditModalOpen(false)} 
-                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 font-medium"
-              >
-                Cancel
-              </button>
-              <button 
-                onClick={handleEditSubmit} 
-                className="px-4 py-2 bg-sky-500 text-white rounded-md hover:bg-sky-600 font-medium"
-              >
-                Upload & Save
-              </button>
+          <div className="bg-white p-6 rounded-lg shadow-xl max-w-lg w-full">
+            <h3 className="text-lg font-medium text-gray-900 mb-4">Review Scan #{selectedScan.id}</h3>
+            
+            <div className="mb-4 p-3 bg-gray-50 rounded-md border border-gray-200">
+              <p className="text-sm text-gray-600"><b>Patient:</b> {selectedScan.patient}</p>
+              <p className="text-sm text-gray-600"><b>AI Classification:</b> {selectedScan.analysis?.classification}</p>
+              <p className="text-sm text-gray-600"><b>Tumor Area:</b> {selectedScan.analysis?.tumor_area_percentage?.toFixed(2)}%</p>
             </div>
+
+            {reviewError && (
+              <div className="p-3 text-sm text-red-700 bg-red-50 border border-red-100 rounded-md mb-4">
+                {reviewError}
+              </div>
+            )}
+
+            <form onSubmit={handleReviewSubmit} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Review Status</label>
+                <select
+                  value={reviewData.status}
+                  onChange={(e) => setReviewData({ ...reviewData, status: e.target.value })}
+                  className="w-full px-3 py-2 mt-1 bg-white border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-sky-500"
+                >
+                  <option value="approved">Approve AI Result</option>
+                  <option value="modified">Modify Classification</option>
+                  <option value="rejected">Reject Scan (Invalid)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Corrected Classification (If modified)</label>
+                <input
+                  type="text"
+                  value={reviewData.corrected_classification}
+                  onChange={(e) => setReviewData({ ...reviewData, corrected_classification: e.target.value })}
+                  className="w-full px-3 py-2 mt-1 bg-white border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-sky-500"
+                  placeholder="e.g., glioma, notumor, meningioma"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Observations / Notes</label>
+                <textarea
+                  rows="3"
+                  value={reviewData.observations}
+                  onChange={(e) => setReviewData({ ...reviewData, observations: e.target.value })}
+                  className="w-full px-3 py-2 mt-1 bg-white border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-sky-500"
+                  placeholder="Write your clinical observations here..."
+                  required
+                ></textarea>
+              </div>
+
+              <div className="flex justify-end space-x-3 pt-4">
+                <button 
+                  type="button" 
+                  onClick={() => setIsReviewModalOpen(false)} 
+                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 font-medium"
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit" 
+                  className="px-4 py-2 bg-sky-500 text-white rounded-md hover:bg-sky-600 font-medium"
+                >
+                  Submit Review
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
