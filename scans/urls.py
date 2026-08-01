@@ -18,6 +18,7 @@ from .views import (
     PatientExplanationView,
     AdminDashboardStatsView,
     BookAppointmentView,
+    AdminScanListView,  # <--- এই লাইনটি যুক্ত করা হয়েছে
 )
 
 urlpatterns = [
@@ -86,9 +87,9 @@ urlpatterns = [
         PatientExplanationView.as_view(),
         name="scan-patient-explanation",
     ),
-    # <--- ২. নিচের লাইনটি নতুন যুক্ত করা হয়েছে
     path("admin-stats/", AdminDashboardStatsView.as_view(), name="admin-stats"),
-    
+    # <--- এই লাইনটি অবশ্যই যুক্ত করতে হবে
+    path("admin-scans/", AdminScanListView.as_view(), name="admin-scan-list"),
     path(
         "<int:scan_id>/book-appointment/",
         BookAppointmentView.as_view(),

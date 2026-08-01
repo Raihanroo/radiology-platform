@@ -19,7 +19,7 @@ from .models import (
     RadiologistReview,
     DoctorConsultation,
     FinalReport,
-    Appointment 
+    Appointment,
 )
 from .serializers import (
     MRIScanSerializer,
@@ -27,7 +27,7 @@ from .serializers import (
     RadiologistReviewCreateSerializer,
     DoctorConsultationCreateSerializer,
     FinalReportCreateSerializer,
-    AppointmentSerializer
+    AppointmentSerializer,
 )
 from .inference import predict_tumor, predict_segmentation
 from . import llm_service
@@ -640,3 +640,27 @@ class BookAppointmentView(APIView):
             scan=scan, patient=request.user, doctor=doctor, status="scheduled"
         )
         return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+from rest_framework import generics
+from accounts.permissions import IsAdminRole
+
+
+class AdminScanListView(generics.ListAPIView):
+    """
+    GET /api/scans/admin-scans/?status=all
+    GET /api/scans/admin-scans/?status=pending
+    শুধু Admin বা Super Admin সব স্ক্যান বা পেন্ডিং স্ক্যান দেখতে পারবে।
+    """
+
+    serializer_class = MRIScanSerializer
+    permission_classes = [IsAdminRole]
+
+    def get_queryset(self):
+        queryset = MRIScan.objects.all().order_by("-uploaded_at")
+        status = self.request.query_params.get("status")
+        if status == "pending":
+            queryset = queryset.filter(
+                analysis__needs_review=True, radiologist_review__isnull=True
+            )
+        return queryset
