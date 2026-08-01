@@ -38,11 +38,6 @@ from . import llm_service
 
 
 class ScanAnalyzeView(APIView):
-    """
-    শুধু patient role-এর ইউজার নিজের scan আপলোড ও analyze করতে পারবে
-    (infographic workflow ধাপ ১ অনুযায়ী)।
-    """
-
     parser_classes = [MultiPartParser, FormParser]
     permission_classes = [IsPatient]
 
@@ -62,12 +57,9 @@ class ScanAnalyzeView(APIView):
                 img = Image.open(img_path)
                 if img.mode != "RGB":
                     img = img.convert("RGB")
-
                 new_path = img_path.rsplit(".", 1)[0] + ".png"
                 img.save(new_path, "PNG")
-
                 os.remove(img_path)
-
                 scan.original_image.name = (
                     scan.original_image.name.rsplit(".", 1)[0] + ".png"
                 )
@@ -82,10 +74,6 @@ class ScanAnalyzeView(APIView):
         # ১. Classification
         try:
             result = predict_tumor(img_path)
-            # --- DEBUG PRINT (এআই কী রেজাল্ট দিচ্ছে তা টার্মিনালে দেখাবে) ---
-            print(
-                f"🤖 AI Classification: {result['classification']} | Confidence: {result['confidence']}"
-            )
         except Exception as e:
             return Response(
                 {"error": f"Classification failed: {str(e)}"},
@@ -98,9 +86,6 @@ class ScanAnalyzeView(APIView):
             mask_dir = os.path.join(settings.MEDIA_ROOT, "scans", "masks")
             os.makedirs(mask_dir, exist_ok=True)
             seg_result = predict_segmentation(img_path, mask_dir)
-            # --- DEBUG PRINT (সেগমেন্টেশন রেজাল্ট টার্মিনালে দেখাবে) ---
-            if seg_result:
-                print(f"🔪 Segmentation Area: {seg_result['tumor_area_percentage']}%")
         except Exception as e:
             seg_result = None
 
@@ -129,18 +114,11 @@ class ScanAnalyzeView(APIView):
             analysis.segmented_overlay = f"scans/masks/{seg_result['overlay_filename']}"
             analysis.save()
 
-        # ৫. Response পাঠানো
         response_serializer = MRIScanSerializer(scan, context={"request": request})
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
 
 
 class MyScansListView(generics.ListAPIView):
-    """
-    GET /api/scans/my-scans/
-    শুধু patient -- নিজের আপলোড করা সব scan-এর history দেখতে পারবে
-    (সবচেয়ে নতুন scan আগে)।
-    """
-
     serializer_class = MRIScanSerializer
     permission_classes = [IsPatient]
 
@@ -151,11 +129,6 @@ class MyScansListView(generics.ListAPIView):
 
 
 class ReviewedByMeListView(generics.ListAPIView):
-    """
-    GET /api/scans/reviewed-by-me/
-    শুধু radiologist -- সে নিজে যেসব scan review করেছে তার history দেখতে পারবে।
-    """
-
     serializer_class = MRIScanSerializer
     permission_classes = [IsRadiologist]
 
@@ -168,30 +141,24 @@ class ReviewedByMeListView(generics.ListAPIView):
 class ReviewQueueListView(generics.ListAPIView):
     """
     GET /api/scans/review-queue/
-    শুধু radiologist দেখতে পারবে -- এমন সব scan যেগুলোর needs_review=True
-    এবং এখনো কোনো radiologist review হয়নি (pending queue)।
+    শুধু radiologist দেখতে পারবে -- এমন সব scan যেগুলো আপলোড হয়েছে
+    কিন্তু এখনো কোনো radiologist review হয়নি (সবগুলো তার কাছে যাবে)।
     """
 
     serializer_class = MRIScanSerializer
     permission_classes = [IsRadiologist]
 
     def get_queryset(self):
-        return MRIScan.objects.filter(
-            analysis__needs_review=True, radiologist_review__isnull=True
-        ).order_by("uploaded_at")
+        return MRIScan.objects.filter(radiologist_review__isnull=True).order_by(
+            "uploaded_at"
+        )
 
 
 class ScanReviewCreateView(APIView):
-    """
-    POST /api/scans/<scan_id>/review/
-    Radiologist একটা নির্দিষ্ট scan-এর জন্য review জমা দেয়
-    """
-
     permission_classes = [IsRadiologist]
 
     def post(self, request, scan_id):
         scan = get_object_or_404(MRIScan, id=scan_id)
-
         if hasattr(scan, "radiologist_review"):
             return Response(
                 {"error": "এই scan-টা ইতিমধ্যে review করা হয়ে গেছে।"},
@@ -201,7 +168,6 @@ class ScanReviewCreateView(APIView):
         serializer = RadiologistReviewCreateSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
         serializer.save(scan=scan, radiologist=request.user)
 
         response_serializer = MRIScanSerializer(scan, context={"request": request})
@@ -209,12 +175,6 @@ class ScanReviewCreateView(APIView):
 
 
 class ConsultationQueueListView(generics.ListAPIView):
-    """
-    GET /api/scans/consultation-queue/
-    শুধু doctor দেখতে পারবে -- এমন সব scan যেগুলোর radiologist review
-    হয়ে গেছে কিন্তু এখনো doctor consultation হয়নি (workflow ধাপ ৪ -> ৫)।
-    """
-
     serializer_class = MRIScanSerializer
     permission_classes = [IsDoctor]
 
@@ -225,23 +185,15 @@ class ConsultationQueueListView(generics.ListAPIView):
 
 
 class ScanConsultCreateView(APIView):
-    """
-    POST /api/scans/<scan_id>/consult/
-    Doctor একটা নির্দিষ্ট scan-এর জন্য চূড়ান্ত ক্লিনিক্যাল মূল্যায়ন ও
-    চিকিৎসা পরামর্শ জমা দেয়।
-    """
-
     permission_classes = [IsDoctor]
 
     def post(self, request, scan_id):
         scan = get_object_or_404(MRIScan, id=scan_id)
-
         if not hasattr(scan, "radiologist_review"):
             return Response(
                 {"error": "এই scan-টার radiologist review এখনো হয়নি।"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-
         if hasattr(scan, "doctor_consultation"):
             return Response(
                 {"error": "এই scan-টা ইতিমধ্যে consult করা হয়ে গেছে।"},
@@ -251,7 +203,6 @@ class ScanConsultCreateView(APIView):
         serializer = DoctorConsultationCreateSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
         serializer.save(scan=scan, doctor=request.user)
 
         response_serializer = MRIScanSerializer(scan, context={"request": request})
@@ -259,23 +210,15 @@ class ScanConsultCreateView(APIView):
 
 
 class GenerateReportView(APIView):
-    """
-    POST /api/scans/<scan_id>/generate-report/
-    Doctor consultation হয়ে যাওয়ার পর, doctor এখান থেকে চূড়ান্ত রিপোর্ট তৈরি করে
-    (status='draft' -- এখনো patient দেখতে পাবে না, আগে approve করতে হবে)।
-    """
-
     permission_classes = [IsDoctor]
 
     def post(self, request, scan_id):
         scan = get_object_or_404(MRIScan, id=scan_id)
-
         if not hasattr(scan, "doctor_consultation"):
             return Response(
                 {"error": "এই scan-টার doctor consultation এখনো হয়নি।"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-
         if hasattr(scan, "final_report"):
             return Response(
                 {"error": "এই scan-এর জন্য final report ইতিমধ্যে তৈরি হয়ে গেছে।"},
@@ -298,22 +241,15 @@ class GenerateReportView(APIView):
             final_diagnosis=final_diagnosis,
             status="draft",
         )
-
         response_serializer = MRIScanSerializer(scan, context={"request": request})
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
 
 
 class ApproveReportView(APIView):
-    """
-    POST /api/scans/<scan_id>/approve-report/
-    Draft report-কে approve করে -- এর পরেই শুধু patient এই report দেখতে পারবে।
-    """
-
     permission_classes = [IsDoctor]
 
     def post(self, request, scan_id):
         scan = get_object_or_404(MRIScan, id=scan_id)
-
         if not hasattr(scan, "final_report"):
             return Response(
                 {"error": "এই scan-এর জন্য এখনো কোনো final report তৈরি হয়নি।"},
@@ -338,16 +274,11 @@ class ApproveReportView(APIView):
             action="approve_report",
             details=f"Report approved for scan {scan.id} with diagnosis {report.final_diagnosis}",
         )
-
         response_serializer = MRIScanSerializer(scan, context={"request": request})
         return Response(response_serializer.data, status=status.HTTP_200_OK)
 
 
-# ===========================================================================
-# LLM Clinical Assistant endpoints (Gemini-powered)
-# ===========================================================================
-
-
+# LLM Clinical Assistant endpoints
 class ClinicalSummaryView(APIView):
     permission_classes = [IsRadiologistOrDoctor]
 
@@ -414,7 +345,6 @@ class CompareProgressionView(APIView):
     def get(self, request, scan_id, other_scan_id):
         current_scan = get_object_or_404(MRIScan, id=scan_id)
         previous_scan = get_object_or_404(MRIScan, id=other_scan_id)
-
         if current_scan.patient_id != previous_scan.patient_id:
             return Response(
                 {"error": "দুইটা scan একই patient-এর না -- তুলনা করা যাবে না।"},
@@ -429,7 +359,6 @@ class CompareProgressionView(APIView):
             )
         if current_scan.uploaded_at < previous_scan.uploaded_at:
             current_scan, previous_scan = previous_scan, current_scan
-
         try:
             comparison = llm_service.compare_scan_progression(
                 current_scan, previous_scan
@@ -447,7 +376,6 @@ class AskMedicalQuestionView(APIView):
 
     def post(self, request, scan_id):
         scan = get_object_or_404(MRIScan, id=scan_id)
-
         if request.user.role == "patient":
             if scan.patient_id != request.user.id:
                 return Response(
@@ -469,7 +397,6 @@ class AskMedicalQuestionView(APIView):
                 },
                 status=status.HTTP_403_FORBIDDEN,
             )
-
         question = request.data.get("question", "").strip()
         if not question:
             return Response(
@@ -481,7 +408,6 @@ class AskMedicalQuestionView(APIView):
                 {"error": "এই scan-এর জন্য এখনো কোনো AI analysis নেই।"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-
         try:
             answer = llm_service.answer_medical_question(scan, question)
         except Exception as e:
@@ -542,11 +468,6 @@ class PatientExplanationView(APIView):
 
 
 class AdminDashboardStatsView(APIView):
-    """
-    GET /api/scans/admin-stats/
-    শুধু Admin বা Super Admin দেখতে পারবে।
-    """
-
     permission_classes = [IsAdminRole]
 
     def get(self, request):
@@ -556,7 +477,7 @@ class AdminDashboardStatsView(APIView):
             "total_doctors": User.objects.filter(role="doctor").count(),
             "total_scans": MRIScan.objects.count(),
             "pending_reviews": MRIScan.objects.filter(
-                analysis__needs_review=True, radiologist_review__isnull=True
+                radiologist_review__isnull=True
             ).count(),
             "approved_reports": FinalReport.objects.filter(status="approved").count(),
         }
@@ -564,16 +485,10 @@ class AdminDashboardStatsView(APIView):
 
 
 class BookAppointmentView(APIView):
-    """
-    POST /api/scans/<scan_id>/book-appointment/
-    Patient তার অনুমোদিত রিপোর্টের জন্য ডাক্তারের সাথে ফলো-আপ অ্যাপয়েন্টমেন্ট বুক করবে।
-    """
-
     permission_classes = [IsPatient]
 
     def post(self, request, scan_id):
         scan = get_object_or_404(MRIScan, id=scan_id, patient=request.user)
-
         if not hasattr(scan, "final_report") or scan.final_report.status != "approved":
             return Response(
                 {
@@ -581,11 +496,9 @@ class BookAppointmentView(APIView):
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
-
         serializer = AppointmentSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
         doctor_id = request.data.get("doctor")
         try:
             doctor = User.objects.get(id=doctor_id, role="doctor")
@@ -594,7 +507,6 @@ class BookAppointmentView(APIView):
                 {"error": "এই আইডির কোনো ডাক্তার পাওয়া যায়নি।"},
                 status=status.HTTP_404_NOT_FOUND,
             )
-
         serializer.save(
             scan=scan, patient=request.user, doctor=doctor, status="scheduled"
         )
@@ -602,66 +514,42 @@ class BookAppointmentView(APIView):
 
 
 class AdminScanListView(generics.ListAPIView):
-    """
-    GET /api/scans/admin-scans/?status=all
-    GET /api/scans/admin-scans/?status=pending
-    শুধু Admin বা Super Admin সব স্ক্যান বা পেন্ডিং স্ক্যান দেখতে পারবে।
-    """
-
     serializer_class = MRIScanSerializer
     permission_classes = [IsAdminRole]
 
     def get_queryset(self):
         queryset = MRIScan.objects.all().order_by("-uploaded_at")
-        status = self.request.query_params.get("status")
-        if status == "pending":
-            queryset = queryset.filter(
-                analysis__needs_review=True, radiologist_review__isnull=True
-            )
+        status_param = self.request.query_params.get("status")
+        if status_param == "pending":
+            queryset = queryset.filter(radiologist_review__isnull=True)
         return queryset
 
 
 class AdminScanDetailView(generics.RetrieveUpdateDestroyAPIView):
-    """
-    GET /api/scans/admin-scans/<id>/
-    PATCH /api/scans/admin-scans/<id>/ (ছবি এডিট করার জন্য)
-    DELETE /api/scans/admin-scans/<id>/ (স্ক্যান ডিলিট করার জন্য)
-    """
-
     queryset = MRIScan.objects.all()
     serializer_class = MRIScanSerializer
     permission_classes = [IsAdminRole]
 
     def perform_update(self, serializer):
         instance = serializer.save()
-
-        # --- অটো-কনভার্সন লজিক (.tif থেকে .png তে কনভার্ট) ---
         img_path = instance.original_image.path
         try:
             if img_path.lower().endswith(".tif") or img_path.lower().endswith(".tiff"):
                 img = Image.open(img_path)
                 if img.mode != "RGB":
                     img = img.convert("RGB")
-
                 new_path = img_path.rsplit(".", 1)[0] + ".png"
                 img.save(new_path, "PNG")
-
                 os.remove(img_path)
-
                 instance.original_image.name = (
                     instance.original_image.name.rsplit(".", 1)[0] + ".png"
                 )
                 instance.save()
-        except Exception as e:
+        except Exception:
             pass
 
 
 class PatientScanDetailView(generics.RetrieveUpdateDestroyAPIView):
-    """
-    PATCH /api/scans/my-scans/<id>/ (পেশেন্ট নিজের ছবি এডিট করবে)
-    DELETE /api/scans/my-scans/<id>/ (পেশেন্ট নিজের স্ক্যান ডিলিট করবে)
-    """
-
     serializer_class = MRIScanSerializer
     permission_classes = [IsPatient]
 
@@ -670,23 +558,18 @@ class PatientScanDetailView(generics.RetrieveUpdateDestroyAPIView):
 
     def perform_update(self, serializer):
         instance = serializer.save()
-
-        # --- অটো-কনভার্সন লজিক (.tif থেকে .png তে কনভার্ট) ---
         img_path = instance.original_image.path
         try:
             if img_path.lower().endswith(".tif") or img_path.lower().endswith(".tiff"):
                 img = Image.open(img_path)
                 if img.mode != "RGB":
                     img = img.convert("RGB")
-
                 new_path = img_path.rsplit(".", 1)[0] + ".png"
                 img.save(new_path, "PNG")
-
                 os.remove(img_path)
-
                 instance.original_image.name = (
                     instance.original_image.name.rsplit(".", 1)[0] + ".png"
                 )
                 instance.save()
-        except Exception as e:
+        except Exception:
             pass
