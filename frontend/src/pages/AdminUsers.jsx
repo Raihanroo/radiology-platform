@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
@@ -9,7 +10,6 @@ export default function AdminUsers() {
   const role = localStorage.getItem('role');
 
   useEffect(() => {
-    // যদি অ্যাডমিন না হয়, তবে ড্যাশবোর্ডে ফেরত পাঠানো
     if (!token || (role !== 'admin' && role !== 'super_admin')) {
       navigate('/dashboard');
       return;
@@ -34,7 +34,6 @@ export default function AdminUsers() {
         { is_active: !currentStatus },
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      // আপডেট হওয়ার পর লিস্টটি রিফ্রেশ করার জন্য আবার ইউজার আনছি
       const response = await axios.get('http://127.0.0.1:8000/api/auth/users/', {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -45,49 +44,59 @@ export default function AdminUsers() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white p-8">
+    <div className="min-h-screen bg-gray-100 text-gray-900 p-8 font-sans">
       <div className="max-w-6xl mx-auto">
         
-        <div className="flex justify-between items-center mb-8">
-          <h1 className="text-3xl font-bold">User Management</h1>
+        <div className="flex justify-between items-center mb-10 border-b border-gray-200 pb-4">
+          <h1 className="text-3xl font-light tracking-wider uppercase">User Management</h1>
           <button
             onClick={() => navigate('/dashboard')}
-            className="px-4 py-2 font-semibold text-white bg-gray-600 rounded-md hover:bg-gray-700 transition-colors"
+            className="px-5 py-2 font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
           >
             Back to Dashboard
           </button>
         </div>
 
-        <div className="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
+        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm">
           <table className="w-full text-left">
-            <thead className="border-b border-gray-700 bg-gray-700/50">
+            <thead className="border-b border-gray-200 bg-gray-50">
               <tr>
-                <th className="p-4 font-medium text-gray-300">ID</th>
-                <th className="p-4 font-medium text-gray-300">Username</th>
-                <th className="p-4 font-medium text-gray-300">Role</th>
-                <th className="p-4 font-medium text-gray-300">Status</th>
-                <th className="p-4 font-medium text-gray-300 text-center">Action</th>
+                <th className="p-5 font-medium text-gray-500 text-xs uppercase tracking-wider">ID</th>
+                <th className="p-5 font-medium text-gray-500 text-xs uppercase tracking-wider">Username</th>
+                <th className="p-5 font-medium text-gray-500 text-xs uppercase tracking-wider">Role</th>
+                <th className="p-5 font-medium text-gray-500 text-xs uppercase tracking-wider">Status</th>
+                <th className="p-5 font-medium text-gray-500 text-xs uppercase tracking-wider text-center">Action</th>
               </tr>
             </thead>
             <tbody>
               {users.map((user) => (
-                <tr key={user.id} className="border-b border-gray-700 last:border-0">
-                  <td className="p-4 text-gray-400">{user.id}</td>
-                  <td className="p-4 font-semibold">{user.username}</td>
-                  <td className="p-4">
-                    <span className="px-2 py-1 text-xs rounded-full bg-blue-900/50 text-blue-300 capitalize">
+                <tr key={user.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors">
+                  <td className="p-5 text-gray-400 font-mono">{user.id}</td>
+                  <td className="p-5 font-medium text-gray-900 text-lg">{user.username}</td>
+                  <td className="p-5">
+                    <span className="px-3 py-1 text-xs rounded-full bg-gray-100 text-gray-700 border border-gray-200 capitalize">
                       {user.role}
                     </span>
                   </td>
-                  <td className="p-4">
-                    <span className={`px-2 py-1 text-xs rounded-full ${user.is_active ? 'bg-green-900/50 text-green-300' : 'bg-red-900/50 text-red-300'}`}>
-                      {user.is_active ? 'Active' : 'Blocked'}
-                    </span>
+                  <td className="p-5">
+                    {user.is_active ? (
+                      <span className="px-3 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-700 border border-green-200">
+                        Active
+                      </span>
+                    ) : (
+                      <span className="px-3 py-1 text-xs font-semibold rounded-full bg-red-100 text-red-700 border border-red-200">
+                        Blocked
+                      </span>
+                    )}
                   </td>
-                  <td className="p-4 text-center">
+                  <td className="p-5 text-center">
                     <button
                       onClick={() => handleToggleActive(user.id, user.is_active)}
-                      className={`px-3 py-1 text-sm font-semibold rounded-md ${user.is_active ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'}`}
+                      className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+                        user.is_active 
+                          ? 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-100' 
+                          : 'bg-black text-white hover:bg-gray-800'
+                      }`}
                     >
                       {user.is_active ? 'Block' : 'Activate'}
                     </button>
