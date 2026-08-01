@@ -11,14 +11,21 @@ export default function AdminScans() {
   const [searchParams] = useSearchParams();
   const status = searchParams.get('status');
 
-   useEffect(() => {
+  // Delete এবং Edit এর জন্য State
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [scanToDelete, setScanToDelete] = useState(null);
+  
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [scanToEdit, setScanToEdit] = useState(null);
+  const [newImage, setNewImage] = useState(null);
+
+  useEffect(() => {
     const fetchScans = async () => {
       try {
         const response = await axios.get(`http://127.0.0.1:8000/api/scans/admin-scans/?status=${status || 'all'}`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         
-        // যদি অ্যাপ্রুভড রিপোর্ট চাওয়া হয়, তবে শুধু approved স্ক্যানগুলো দেখাবে
         if (status === 'approved') {
           setScans(response.data.filter(scan => scan.final_report?.status === 'approved'));
         } else {
@@ -33,7 +40,71 @@ export default function AdminScans() {
     fetchScans();
   }, [token, status]);
 
-  // টাইটেল ডাইনামিকভাবে পরিবর্তন হবে
+  // ছবির URL ঠিক করার ফাংশন (১০০% নিশ্চিত করা হয়েছে)
+  const getImageUrl = (imgPath) => {
+    if (!imgPath) return "https://placehold.co/64x64?text=No+Image";
+    if (imgPath.startsWith('http')) return imgPath;
+    return `http://127.0.0.1:8000${imgPath}`;
+  };
+
+  // Delete কনফার্মেশন
+  const handleDeleteClick = (scan) => {
+    setScanToDelete(scan);
+    setIsDeleteModalOpen(true);
+  };
+
+  const confirmDelete = async () => {
+    try {
+      await axios.delete(`http://127.0.0.1:8000/api/scans/admin-scans/${scanToDelete.id}/`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      // ডিলিট হওয়ার পর লিস্ট থেকে সরিয়ে ফেলা
+      setScans(scans.filter(s => s.id !== scanToDelete.id));
+      setIsDeleteModalOpen(false);
+      setScanToDelete(null);
+    } catch (err) {
+      alert("Failed to delete scan.");
+    }
+  };
+
+  // Edit লজিক
+  const handleEditClick = (scan) => {
+    setScanToEdit(scan);
+    setIsEditModalOpen(true);
+  };
+
+    const handleEditSubmit = async () => {
+    if (!newImage) {
+      alert("Please select a new image first.");
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('original_image', newImage);
+
+    try {
+      const response = await axios.patch(`http://127.0.0.1:8000/api/scans/admin-scans/${scanToEdit.id}/`, formData, {
+        headers: { 
+          Authorization: `Bearer ${token}`
+          // Content-Type লাইনটি মুছে দেওয়া হয়েছে, Axios নিজে থেকেই সঠিক হেডার বসাবে
+        }
+      });
+      
+      // লিস্ট আপডেট করা
+      setScans(scans.map(s => s.id === response.data.id ? response.data : s));
+      setIsEditModalOpen(false);
+      setNewImage(null);
+      setScanToEdit(null);
+      
+      // ব্রাউজার ক্যাশ এড়াতে পেজ রিফ্রেশ করার পরামর্শ
+      window.location.reload(); 
+      
+    } catch (err) {
+      console.error("Edit error:", err);
+      alert("Failed to update image. Check console for details.");
+    }
+  };
+
   const pageTitle = status === 'pending' 
     ? 'Pending Reviews' 
     : status === 'approved' 
@@ -66,16 +137,11 @@ export default function AdminScans() {
                   <th className="p-4 font-medium text-gray-500 text-sm">AI Classification</th>
                   <th className="p-4 font-medium text-gray-500 text-sm">Confidence</th>
                   <th className="p-4 font-medium text-gray-500 text-sm">Status</th>
+                  <th className="p-4 font-medium text-gray-500 text-sm text-center">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {scans.map((scan) => {
-                  // ছবির URL ঠিক করার লজিক
-                  const imageUrl = scan.original_image?.startsWith('http')
-                    ? scan.original_image
-                    : `http://127.0.0.1:8000${scan.original_image}`;
-
-                  // কনফিডেন্স স্কোর ঠিক করার লজিক
                   const rawScore = scan.analysis?.confidence_score || 0;
                   const displayScore = rawScore > 1 ? rawScore : rawScore * 100;
 
@@ -84,9 +150,10 @@ export default function AdminScans() {
                       <td className="p-4 text-gray-400 font-mono text-sm">#{scan.id}</td>
                       <td className="p-4">
                         <img 
-                          src={imageUrl} 
+                          src={getImageUrl(scan.original_image)} 
                           alt={`Scan ${scan.id}`} 
                           className="w-16 h-16 object-cover rounded-md border border-gray-200 bg-gray-50"
+                          onError={(e) => { e.target.src = "https://placehold.co/64x64?text=No+Image"; }}
                         />
                       </td>
                       <td className="p-4">
@@ -110,6 +177,20 @@ export default function AdminScans() {
                            <span className="px-2.5 py-1 text-xs font-medium rounded-full bg-yellow-50 text-yellow-700 border border-yellow-100">Pending</span>
                         )}
                       </td>
+                      <td className="p-4 text-center space-x-2">
+                        <button 
+                          onClick={() => handleEditClick(scan)}
+                          className="px-3 py-1 text-xs font-medium text-sky-700 bg-sky-50 border border-sky-200 rounded-md hover:bg-sky-100"
+                        >
+                          Edit Image
+                        </button>
+                        <button 
+                          onClick={() => handleDeleteClick(scan)}
+                          className="px-3 py-1 text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-md hover:bg-red-100"
+                        >
+                          Delete
+                        </button>
+                      </td>
                     </tr>
                   );
                 })}
@@ -121,6 +202,61 @@ export default function AdminScans() {
         </div>
 
       </div>
+
+      {/* Delete Confirmation Modal (Popup) */}
+      {isDeleteModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white p-6 rounded-lg shadow-xl max-w-sm w-full">
+            <h3 className="text-lg font-medium text-gray-900 mb-4">নিশ্চিত করুন</h3>
+            <p className="text-gray-600 mb-6">আপনি কি সত্যি তথ্য টি আপনার ডেসবোর্ড থেকে মুছে ফেলতে চান?</p>
+            <div className="flex justify-end space-x-3">
+              <button 
+                onClick={() => setIsDeleteModalOpen(false)} 
+                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 font-medium"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={confirmDelete} 
+                className="px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600 font-medium"
+              >
+                OK, Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Image Modal (Popup) */}
+      {isEditModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white p-6 rounded-lg shadow-xl max-w-sm w-full">
+            <h3 className="text-lg font-medium text-gray-900 mb-4">স্ক্যানের ছবি পরিবর্তন করুন</h3>
+            <p className="text-sm text-gray-500 mb-4">Scan ID: #{scanToEdit?.id}</p>
+            <input 
+              type="file" 
+              onChange={(e) => setNewImage(e.target.files[0])} 
+              accept="image/*" 
+              className="mb-4 w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-sky-50 file:text-sky-700 hover:file:bg-sky-100"
+            />
+            <div className="flex justify-end space-x-3 mt-6">
+              <button 
+                onClick={() => setIsEditModalOpen(false)} 
+                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 font-medium"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={handleEditSubmit} 
+                className="px-4 py-2 bg-sky-500 text-white rounded-md hover:bg-sky-600 font-medium"
+              >
+                Upload & Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

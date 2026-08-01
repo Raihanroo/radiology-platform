@@ -1,4 +1,5 @@
 import os
+from PIL import Image
 from django.conf import settings
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -11,7 +12,9 @@ from accounts.permissions import (
     IsRadiologist,
     IsDoctor,
     IsRadiologistOrDoctor,
+    IsAdminRole,
 )
+from accounts.models import User
 
 from .models import (
     MRIScan,
@@ -20,6 +23,7 @@ from .models import (
     DoctorConsultation,
     FinalReport,
     Appointment,
+    AuditLog,
 )
 from .serializers import (
     MRIScanSerializer,
@@ -31,9 +35,6 @@ from .serializers import (
 )
 from .inference import predict_tumor, predict_segmentation
 from . import llm_service
-from .models import AuditLog
-from accounts.models import User
-from accounts.permissions import IsAdminRole
 
 
 class ScanAnalyzeView(APIView):
@@ -54,30 +55,49 @@ class ScanAnalyzeView(APIView):
 
         scan = upload_serializer.save(patient=request.user, uploaded_by=request.user)
 
+        # --- অটো-কনভার্সন লজিক (.tif থেকে .png তে কনভার্ট) ---
+        img_path = scan.original_image.path
+        try:
+            if img_path.lower().endswith(".tif") or img_path.lower().endswith(".tiff"):
+                img = Image.open(img_path)
+                if img.mode != "RGB":
+                    img = img.convert("RGB")
+
+                new_path = img_path.rsplit(".", 1)[0] + ".png"
+                img.save(new_path, "PNG")
+
+                os.remove(img_path)
+
+                scan.original_image.name = (
+                    scan.original_image.name.rsplit(".", 1)[0] + ".png"
+                )
+                scan.save()
+                img_path = new_path
+        except Exception as e:
+            return Response(
+                {"error": f"Image conversion failed: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
         # ১. Classification
         try:
-            result = predict_tumor(scan.original_image.path)
+            result = predict_tumor(img_path)
         except Exception as e:
             return Response(
                 {"error": f"Classification failed: {str(e)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-        # ২. Segmentation (সবসময় চালানো হয় — classification যাই বলুক না কেন।
-        # কারণ: দুটো model independent, classification ভুল করলেও segmentation
-        # প্রকৃত tumor ধরতে পারে (cross-check হিসেবে কাজ করে))
+        # ২. Segmentation
         seg_result = None
         try:
             mask_dir = os.path.join(settings.MEDIA_ROOT, "scans", "masks")
             os.makedirs(mask_dir, exist_ok=True)
-            seg_result = predict_segmentation(scan.original_image.path, mask_dir)
+            seg_result = predict_segmentation(img_path, mask_dir)
         except Exception as e:
-            # Segmentation ব্যর্থ হলেও classification result তো আছে, তাই পুরো request fail করাচ্ছি না
             seg_result = None
 
         # ৩. Review প্রয়োজন কিনা যাচাই করি
-        # Classifier "notumor" বলল, কিন্তু segmentation উল্লেখযোগ্য tumor area পেলে
-        # (থ্রেশহোল্ড: 1%) — এটা দুই মডেলের মধ্যে দ্বন্দ্ব, তাই ম্যানুয়াল review দরকার
         REVIEW_THRESHOLD_PERCENT = 1.0
         needs_review = (
             result["classification"] == "notumor"
@@ -166,8 +186,6 @@ class ScanReviewCreateView(APIView):
     def post(self, request, scan_id):
         scan = get_object_or_404(MRIScan, id=scan_id)
 
-        # একটা scan-এ ইতিমধ্যে review থাকলে দ্বিতীয়বার review করা যাবে না
-        # (OneToOneField constraint অনুযায়ী -- ভবিষ্যতে চাইলে "update" endpoint আলাদা বানানো যাবে)
         if hasattr(scan, "radiologist_review"):
             return Response(
                 {"error": "এই scan-টা ইতিমধ্যে review করা হয়ে গেছে।"},
@@ -212,15 +230,12 @@ class ScanConsultCreateView(APIView):
     def post(self, request, scan_id):
         scan = get_object_or_404(MRIScan, id=scan_id)
 
-        # Radiologist review ছাড়া doctor consultation করা যাবে না
-        # (workflow-এর ক্রম মেনে চলার জন্য)
         if not hasattr(scan, "radiologist_review"):
             return Response(
                 {"error": "এই scan-টার radiologist review এখনো হয়নি।"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # একটা scan-এ ইতিমধ্যে consultation থাকলে দ্বিতীয়বার করা যাবে না
         if hasattr(scan, "doctor_consultation"):
             return Response(
                 {"error": "এই scan-টা ইতিমধ্যে consult করা হয়ে গেছে।"},
@@ -242,9 +257,6 @@ class GenerateReportView(APIView):
     POST /api/scans/<scan_id>/generate-report/
     Doctor consultation হয়ে যাওয়ার পর, doctor এখান থেকে চূড়ান্ত রিপোর্ট তৈরি করে
     (status='draft' -- এখনো patient দেখতে পাবে না, আগে approve করতে হবে)।
-
-    final_diagnosis auto-নির্ধারিত হয়: radiologist-এর corrected_classification
-    থাকলে সেটা, নাহলে AI-এর classification।
     """
 
     permission_classes = [IsDoctor]
@@ -252,7 +264,6 @@ class GenerateReportView(APIView):
     def post(self, request, scan_id):
         scan = get_object_or_404(MRIScan, id=scan_id)
 
-        # Doctor consultation ছাড়া final report generate করা যাবে না
         if not hasattr(scan, "doctor_consultation"):
             return Response(
                 {"error": "এই scan-টার doctor consultation এখনো হয়নি।"},
@@ -269,7 +280,6 @@ class GenerateReportView(APIView):
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        # final_diagnosis নির্ধারণ: radiologist-এর সংশোধন থাকলে সেটাই চূড়ান্ত ধরা হয়
         radiologist_review = getattr(scan, "radiologist_review", None)
         if radiologist_review and radiologist_review.corrected_classification:
             final_diagnosis = radiologist_review.corrected_classification
@@ -290,8 +300,7 @@ class GenerateReportView(APIView):
 class ApproveReportView(APIView):
     """
     POST /api/scans/<scan_id>/approve-report/
-    Draft report-কে approve করে -- এর পরেই শুধু patient এই report দেখতে পারবে
-    ("Only the Final Approved Report is delivered to the Patient")।
+    Draft report-কে approve করে -- এর পরেই শুধু patient এই report দেখতে পারবে।
     """
 
     permission_classes = [IsDoctor]
@@ -317,7 +326,6 @@ class ApproveReportView(APIView):
         report.approved_at = timezone.now()
         report.save()
 
-        # --- এই লাইনটি যুক্ত করুন ---
         AuditLog.objects.create(
             user=request.user,
             scan=scan,
@@ -331,20 +339,10 @@ class ApproveReportView(APIView):
 
 # ===========================================================================
 # LLM Clinical Assistant endpoints (Gemini-powered)
-#
-# সবগুলোতেই একটা common প্যাটার্ন: llm_service ফাংশন কল করা try/except-এ মোড়া
-# থাকে, কারণ এটা একটা বাইরের API কল (network issue, rate limit, ইত্যাদি হতে
-# পারে) -- ব্যর্থ হলে পুরো request 500 করে দেওয়া হয় স্পষ্ট error message সহ।
 # ===========================================================================
 
 
 class ClinicalSummaryView(APIView):
-    """
-    GET /api/scans/<scan_id>/clinical-summary/
-    Radiologist/Doctor -- এখন পর্যন্ত scan-এ যা রেকর্ড হয়েছে তার সংক্ষিপ্ত
-    ক্লিনিক্যাল সামারি (LLM Clinical Assistant ফিচার ১)।
-    """
-
     permission_classes = [IsRadiologistOrDoctor]
 
     def get(self, request, scan_id):
@@ -365,12 +363,6 @@ class ClinicalSummaryView(APIView):
 
 
 class InterpretResultView(APIView):
-    """
-    GET /api/scans/<scan_id>/interpret-result/
-    Radiologist/Doctor -- AI classification/segmentation ফলাফলের ক্লিনিক্যাল
-    ব্যাখ্যা (LLM Clinical Assistant ফিচার ২)।
-    """
-
     permission_classes = [IsRadiologistOrDoctor]
 
     def get(self, request, scan_id):
@@ -391,14 +383,6 @@ class InterpretResultView(APIView):
 
 
 class DraftReportView(APIView):
-    """
-    GET /api/scans/<scan_id>/draft-report/
-    Doctor -- doctor consultation হয়ে যাওয়ার পর final report-এর জন্য একটা
-    LLM-generated draft (LLM Clinical Assistant ফিচার ৩)। এটা শুধু একটা
-    starting point -- doctor edit করে generate-report endpoint-এ পাঠাবে,
-    এটা নিজে থেকে কোনো report সেভ করে না।
-    """
-
     permission_classes = [IsDoctor]
 
     def get(self, request, scan_id):
@@ -419,12 +403,6 @@ class DraftReportView(APIView):
 
 
 class CompareProgressionView(APIView):
-    """
-    GET /api/scans/<scan_id>/compare/<other_scan_id>/
-    Radiologist/Doctor -- একই patient-এর দুইটা scan-এর মধ্যে tumor
-    progression তুলনা (LLM Clinical Assistant ফিচার ৪)।
-    """
-
     permission_classes = [IsRadiologistOrDoctor]
 
     def get(self, request, scan_id, other_scan_id):
@@ -443,7 +421,6 @@ class CompareProgressionView(APIView):
                 {"error": "দুইটা scan-এরই AI analysis থাকা দরকার তুলনার জন্য।"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        # current_scan সবসময় পরের scan হওয়া উচিত -- না হলে swap করে নিচ্ছি
         if current_scan.uploaded_at < previous_scan.uploaded_at:
             current_scan, previous_scan = previous_scan, current_scan
 
@@ -460,13 +437,6 @@ class CompareProgressionView(APIView):
 
 
 class AskMedicalQuestionView(APIView):
-    """
-    POST /api/scans/<scan_id>/ask/  { "question": "..." }
-    Patient (শুধু নিজের scan, রিপোর্ট approved হলে) অথবা Radiologist/Doctor
-    (যেকোনো scan) -- scan-এর ডেটার ভিত্তিতে প্রশ্নের উত্তর (LLM Clinical
-    Assistant ফিচার ৫: Medical Q&A)।
-    """
-
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, scan_id):
@@ -519,13 +489,6 @@ class AskMedicalQuestionView(APIView):
 
 
 class FollowUpRecommendationsView(APIView):
-    """
-    GET /api/scans/<scan_id>/follow-up-recommendations/
-    Doctor -- final report-এর ভিত্তিতে সম্ভাব্য follow-up পদক্ষেপের সাজেশন
-    (LLM Clinical Assistant ফিচার ৬)। এগুলো শুধু সাজেশন -- doctor নিজে
-    যাচাই করে গ্রহণ/বাতিল করবে।
-    """
-
     permission_classes = [IsDoctor]
 
     def get(self, request, scan_id):
@@ -546,14 +509,6 @@ class FollowUpRecommendationsView(APIView):
 
 
 class PatientExplanationView(APIView):
-    """
-    GET /api/scans/<scan_id>/explanation/
-    Patient -- শুধু নিজের scan, এবং শুধু final report approved হলেই সহজ ভাষায়
-    ব্যাখ্যা পাওয়া যাবে (LLM Clinical Assistant ফিচার ৭: Patient Friendly
-    Explanation) -- ঠিক "Only the Final Approved Report is delivered to the
-    Patient" নিয়ম অনুযায়ী।
-    """
-
     permission_classes = [IsPatient]
 
     def get(self, request, scan_id):
@@ -586,7 +541,7 @@ class AdminDashboardStatsView(APIView):
     শুধু Admin বা Super Admin দেখতে পারবে।
     """
 
-    permission_classes = [IsAdminRole]  # <--- এখানেও IsAdminRole হবে
+    permission_classes = [IsAdminRole]
 
     def get(self, request):
         stats = {
@@ -613,7 +568,6 @@ class BookAppointmentView(APIView):
     def post(self, request, scan_id):
         scan = get_object_or_404(MRIScan, id=scan_id, patient=request.user)
 
-        # রিপোর্ট অ্যাপ্রুভড না হলে অ্যাপয়েন্টমেন্ট করা যাবে না
         if not hasattr(scan, "final_report") or scan.final_report.status != "approved":
             return Response(
                 {
@@ -626,7 +580,6 @@ class BookAppointmentView(APIView):
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        # ক্লায়েন্ট কোন ডাক্তারের আইডি দিয়েছে তা চেক করা
         doctor_id = request.data.get("doctor")
         try:
             doctor = User.objects.get(id=doctor_id, role="doctor")
@@ -640,10 +593,6 @@ class BookAppointmentView(APIView):
             scan=scan, patient=request.user, doctor=doctor, status="scheduled"
         )
         return Response(serializer.data, status=status.HTTP_201_CREATED)
-
-
-from rest_framework import generics
-from accounts.permissions import IsAdminRole
 
 
 class AdminScanListView(generics.ListAPIView):
@@ -664,3 +613,28 @@ class AdminScanListView(generics.ListAPIView):
                 analysis__needs_review=True, radiologist_review__isnull=True
             )
         return queryset
+
+
+class AdminScanDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    GET /api/scans/admin-scans/<id>/
+    PATCH /api/scans/admin-scans/<id>/ (ছবি এডিট করার জন্য)
+    DELETE /api/scans/admin-scans/<id>/ (স্ক্যান ডিলিট করার জন্য)
+    """
+
+    queryset = MRIScan.objects.all()
+    serializer_class = MRIScanSerializer
+    permission_classes = [IsAdminRole]
+
+
+class PatientScanDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    PATCH /api/scans/my-scans/<id>/ (পেশেন্ট নিজের ছবি এডিট করবে)
+    DELETE /api/scans/my-scans/<id>/ (পেশেন্ট নিজের স্ক্যান ডিলিট করবে)
+    """
+
+    serializer_class = MRIScanSerializer
+    permission_classes = [IsPatient]
+
+    def get_queryset(self):
+        return MRIScan.objects.filter(patient=self.request.user)
