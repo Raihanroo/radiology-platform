@@ -89,3 +89,7 @@ Access the application:
 Open your browser and navigate to http://localhost:5173/ for the frontend. The backend API will be running at http://127.0.0.1:8000/.
 text
 
+<<<<<<< HEAD
+=======
+Ente
+>>>>>>> 86e203bd5cbe8fe73a84214d08ee42ad1a5badcc
