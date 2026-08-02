@@ -22,6 +22,7 @@ export default function Dashboard() {
   const [selectedConsultScan, setSelectedConsultScan] = useState(null);
   const [consultData, setConsultData] = useState({ clinical_assessment: '', treatment_recommendation: '', summary: '' });
   const [consultError, setConsultError] = useState('');
+  const [isGeneratingDraft, setIsGeneratingDraft] = useState(false); // AI Draft এর জন্য State
 
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [reportData, setReportData] = useState(null);
@@ -31,7 +32,7 @@ export default function Dashboard() {
   const [aiHistory, setAiHistory] = useState([]);
   const [aiLoading, setAiLoading] = useState(false);
 
-  // Edit এবং Delete এর জন্য State (ফিরিয়ে আনা হয়েছে)
+  // Edit এবং Delete এর জন্য State
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [scanToDelete, setScanToDelete] = useState(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -98,6 +99,19 @@ export default function Dashboard() {
   };
   const openReviewModal = (scan) => {
     setSelectedScan(scan); setReviewData({ status: 'approved', observations: '', corrected_classification: scan.analysis?.classification || '' }); setIsReviewModalOpen(true);
+  };
+
+  // ডাক্তারের AI ড্রাফট জেনারেট করার ফাংশন
+  const handleGenerateDraft = async () => {
+    setIsGeneratingDraft(true);
+    try {
+      const res = await axios.post(`http://127.0.0.1:8000/api/scans/${selectedConsultScan.id}/draft-report/`, {}, { headers: { Authorization: `Bearer ${token}` } });
+      setConsultData(prev => ({ ...prev, summary: res.data.draft }));
+    } catch (err) {
+      alert("Failed to generate AI draft. Please try manually.");
+    } finally {
+      setIsGeneratingDraft(false);
+    }
   };
 
   const handleConsultSubmit = async (e) => {
@@ -248,7 +262,6 @@ export default function Dashboard() {
                           ) : (
                             <span className="px-2.5 py-1 text-xs font-medium rounded-full bg-yellow-50 text-yellow-700 border border-yellow-100">In Review</span>
                           )}
-                          {/* Edit এবং Delete বাটন ফিরিয়ে আনা হয়েছে */}
                           <div className="flex space-x-1">
                             <button onClick={() => handleEditClick(scan)} className="px-2 py-1 text-xs font-medium text-sky-700 bg-sky-50 border border-sky-200 rounded hover:bg-sky-100">Edit</button>
                             <button onClick={() => handleDeleteClick(scan)} className="px-2 py-1 text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded hover:bg-red-100">Delete</button>
@@ -312,16 +325,32 @@ export default function Dashboard() {
         )}
       </div>
 
-      {/* Radiologist Review Modal */}
+      {/* Radiologist Review Modal (সেগমেন্টেশন ছবি যুক্ত করা হয়েছে) */}
       {isReviewModalOpen && selectedScan && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white p-6 rounded-lg shadow-xl max-w-lg w-full">
             <h3 className="text-lg font-medium text-gray-900 mb-4">Review Scan #{selectedScan.id}</h3>
-            <div className="mb-4 p-3 bg-gray-50 rounded-md border border-gray-200">
-              <p className="text-sm text-gray-600"><b>Patient:</b> {selectedScan.patient}</p>
-              <p className="text-sm text-gray-600"><b>AI Classification:</b> {selectedScan.analysis?.classification}</p>
-              <p className="text-sm text-gray-600"><b>Tumor Area:</b> {selectedScan.analysis?.tumor_area_percentage?.toFixed(2)}%</p>
+            
+            {/* Original & Segmented Images */}
+            <div className="mb-4 flex space-x-4 p-3 bg-gray-50 rounded-md border border-gray-200">
+              <div className="text-center">
+                <img src={getImageUrl(selectedScan.original_image)} alt="Original" className="w-32 h-32 object-cover rounded-md border border-gray-300" />
+                <p className="text-xs text-gray-500 mt-1">Original Scan</p>
+              </div>
+              {selectedScan.analysis?.segmented_overlay && (
+                <div className="text-center">
+                  <img src={getImageUrl(selectedScan.analysis.segmented_overlay)} alt="Segmentation" className="w-32 h-32 object-cover rounded-md border border-gray-300" />
+                  <p className="text-xs text-sky-600 mt-1 font-medium">AI Segmentation</p>
+                </div>
+              )}
             </div>
+
+            <div className="mb-4 text-sm text-gray-600 space-y-1">
+              <p><b>Patient:</b> {selectedScan.patient}</p>
+              <p><b>AI Classification:</b> {selectedScan.analysis?.classification}</p>
+              <p><b>Tumor Area:</b> {selectedScan.analysis?.tumor_area_percentage?.toFixed(2)}%</p>
+            </div>
+
             {reviewError && <div className="p-3 text-sm text-red-700 bg-red-50 border border-red-100 rounded-md mb-4">{reviewError}</div>}
             <form onSubmit={handleReviewSubmit} className="space-y-4">
               <div>
@@ -349,7 +378,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Doctor Consultation Modal */}
+      {/* Doctor Consultation Modal (সেগমেন্টেশন ছবি এবং AI Draft যুক্ত করা হয়েছে) */}
       {isConsultModalOpen && selectedConsultScan && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white p-6 rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
@@ -357,7 +386,19 @@ export default function Dashboard() {
             
             <div className="mb-4 p-4 bg-gray-50 rounded-md border border-gray-200">
               <div className="flex space-x-4">
-                <img src={getImageUrl(selectedConsultScan.original_image)} alt={`Scan ${selectedConsultScan.id}`} className="w-28 h-28 object-cover rounded-md border border-gray-300" />
+                {/* Original & Segmented Images */}
+                <div className="flex space-x-2">
+                  <div className="text-center">
+                    <img src={getImageUrl(selectedConsultScan.original_image)} alt="Original" className="w-28 h-28 object-cover rounded-md border border-gray-300" />
+                    <p className="text-xs text-gray-500 mt-1">Original</p>
+                  </div>
+                  {selectedConsultScan.analysis?.segmented_overlay && (
+                    <div className="text-center">
+                      <img src={getImageUrl(selectedConsultScan.analysis.segmented_overlay)} alt="Segmentation" className="w-28 h-28 object-cover rounded-md border border-gray-300" />
+                      <p className="text-xs text-sky-600 mt-1 font-medium">Segmented</p>
+                    </div>
+                  )}
+                </div>
                 <div className="text-sm text-gray-700 flex-1 space-y-1">
                   <p><b>Patient:</b> {selectedConsultScan.patient}</p>
                   <p><b>AI Prediction:</b> <span className="capitalize">{selectedConsultScan.analysis?.classification}</span> ({selectedConsultScan.analysis?.confidence_score ? (selectedConsultScan.analysis.confidence_score > 1 ? selectedConsultScan.analysis.confidence_score : selectedConsultScan.analysis.confidence_score * 100).toFixed(2) : 0}%)</p>
@@ -382,7 +423,17 @@ export default function Dashboard() {
                 <textarea rows="2" value={consultData.treatment_recommendation} onChange={(e) => setConsultData({ ...consultData, treatment_recommendation: e.target.value })} className="w-full px-3 py-2 mt-1 bg-white border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-sky-500" placeholder="Treatment recommendation / advice..." required></textarea>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Final Report Summary</label>
+                <div className="flex justify-between items-center mb-1">
+                  <label className="block text-sm font-medium text-gray-700">Final Report Summary</label>
+                  <button type="button" onClick={handleGenerateDraft} disabled={isGeneratingDraft} className="text-xs font-medium text-sky-600 bg-sky-50 px-2 py-1 rounded border border-sky-200 hover:bg-sky-100 disabled:opacity-50 flex items-center">
+                    {isGeneratingDraft ? (
+                      <svg className="animate-spin h-3 w-3 mr-1" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                    ) : '✨ Generate AI Draft'}
+                  </button>
+                </div>
                 <textarea rows="3" value={consultData.summary} onChange={(e) => setConsultData({ ...consultData, summary: e.target.value })} className="w-full px-3 py-2 mt-1 bg-white border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-sky-500" placeholder="Write the final detailed report summary for the patient..." required></textarea>
               </div>
               <div className="flex justify-end space-x-3 pt-4">
@@ -394,7 +445,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Patient Report Modal (PDF + AI Assistant) */}
+      {/* Patient Report Modal (PDF + AI Assistant + Segmentation Image) */}
       {isReportModalOpen && reportData && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
@@ -419,6 +470,20 @@ export default function Dashboard() {
                     <p>Date: {new Date(reportData.final_report?.approved_at || Date.now()).toLocaleDateString()}</p>
                   </div>
                 </div>
+
+                {/* Original & Segmented Images */}
+                {reportData.analysis?.segmented_overlay && (
+                  <div className="mb-6 flex space-x-4 justify-center">
+                    <div className="text-center">
+                      <img src={getImageUrl(reportData.original_image)} alt="Original" className="w-40 h-40 object-cover rounded-md border border-gray-300" />
+                      <p className="text-xs text-gray-500 mt-1">Original MRI</p>
+                    </div>
+                    <div className="text-center">
+                      <img src={getImageUrl(reportData.analysis.segmented_overlay)} alt="Segmentation" className="w-40 h-40 object-cover rounded-md border border-gray-300" />
+                      <p className="text-xs text-sky-600 mt-1 font-medium">AI Tumor Detection</p>
+                    </div>
+                  </div>
+                )}
 
                 <div className="mb-6 grid grid-cols-2 gap-4 text-sm">
                   <div>
