@@ -31,6 +31,13 @@ export default function Dashboard() {
   const [aiHistory, setAiHistory] = useState([]);
   const [aiLoading, setAiLoading] = useState(false);
 
+  // Edit এবং Delete এর জন্য State (ফিরিয়ে আনা হয়েছে)
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [scanToDelete, setScanToDelete] = useState(null);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [scanToEdit, setScanToEdit] = useState(null);
+  const [newImage, setNewImage] = useState(null);
+
   const username = localStorage.getItem('username');
   const role = localStorage.getItem('role');
   const token = localStorage.getItem('token');
@@ -119,12 +126,11 @@ export default function Dashboard() {
 
   const openReportModal = (scan) => {
     setReportData(scan);
-    setAiHistory([]); // নতুন রিপোর্ট খোলার সময় চ্যাট হিস্ট্রি মুছে ফেলা
+    setAiHistory([]); 
     setAiQuestion('');
     setIsReportModalOpen(true);
   };
 
-  // AI কে প্রশ্ন করার ফাংশন
   const handleAskAI = async (e) => {
     e.preventDefault();
     if (!aiQuestion.trim()) return;
@@ -133,13 +139,32 @@ export default function Dashboard() {
       const res = await axios.post(`http://127.0.0.1:8000/api/scans/${reportData.id}/ask/`, { question: aiQuestion }, { headers: { Authorization: `Bearer ${token}` } });
       setAiHistory([...aiHistory, { q: aiQuestion, a: res.data.answer }]);
       setAiQuestion('');
-      } catch (err) {
-      // ব্যাকএন্ড থেকে আসা আসল এরর মেসেজটি দেখানো হচ্ছে
+    } catch (err) {
       const errorMsg = err.response?.data?.error || "Sorry, I couldn't process your request right now.";
       setAiHistory([...aiHistory, { q: aiQuestion, a: errorMsg }]);
     } finally {
       setAiLoading(false);
     }
+  };
+
+  // পেশেন্ট ডিলিট ফাংশন
+  const handleDeleteClick = (scan) => { setScanToDelete(scan); setIsDeleteModalOpen(true); };
+  const confirmDelete = async () => {
+    try {
+      await axios.delete(`http://127.0.0.1:8000/api/scans/my-scans/${scanToDelete.id}/`, { headers: { Authorization: `Bearer ${token}` } });
+      fetchMyScans(); setIsDeleteModalOpen(false); setScanToDelete(null);
+    } catch (err) { alert("Failed to delete scan."); }
+  };
+
+  // পেশেন্ট এডিট ফাংশন
+  const handleEditClick = (scan) => { setScanToEdit(scan); setIsEditModalOpen(true); };
+  const handleEditSubmit = async () => {
+    if (!newImage) return alert("Please select a new image first.");
+    const formData = new FormData(); formData.append('original_image', newImage);
+    try {
+      await axios.patch(`http://127.0.0.1:8000/api/scans/my-scans/${scanToEdit.id}/`, formData, { headers: { Authorization: `Bearer ${token}` } });
+      fetchMyScans(); setIsEditModalOpen(false); setNewImage(null); setScanToEdit(null);
+    } catch (err) { alert("Failed to update image."); }
   };
 
   return (
@@ -215,7 +240,7 @@ export default function Dashboard() {
                           <p className="text-sm text-gray-500 capitalize">AI: {scan.analysis?.classification || 'Processing...'}</p>
                           <p className="text-xs text-gray-400 mt-1">{new Date(scan.uploaded_at).toLocaleDateString()}</p>
                         </div>
-                        <div>
+                        <div className="flex flex-col items-end space-y-2">
                           {scan.final_report?.status === 'approved' ? (
                             <button onClick={() => openReportModal(scan)} className="px-3 py-1.5 text-xs font-medium text-white bg-sky-500 rounded-md hover:bg-sky-600">
                               View Report
@@ -223,6 +248,11 @@ export default function Dashboard() {
                           ) : (
                             <span className="px-2.5 py-1 text-xs font-medium rounded-full bg-yellow-50 text-yellow-700 border border-yellow-100">In Review</span>
                           )}
+                          {/* Edit এবং Delete বাটন ফিরিয়ে আনা হয়েছে */}
+                          <div className="flex space-x-1">
+                            <button onClick={() => handleEditClick(scan)} className="px-2 py-1 text-xs font-medium text-sky-700 bg-sky-50 border border-sky-200 rounded hover:bg-sky-100">Edit</button>
+                            <button onClick={() => handleDeleteClick(scan)} className="px-2 py-1 text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded hover:bg-red-100">Delete</button>
+                          </div>
                         </div>
                       </div>
                     ))}
@@ -482,6 +512,35 @@ export default function Dashboard() {
               <button onClick={() => window.print()} className="px-4 py-2 bg-sky-500 text-white rounded-md hover:bg-sky-600 font-medium">Download as PDF</button>
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* Patient Delete Confirmation Modal */}
+      {isDeleteModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white p-6 rounded-lg shadow-xl max-w-sm w-full">
+            <h3 className="text-lg font-medium text-gray-900 mb-4">নিশ্চিত করুন</h3>
+            <p className="text-gray-600 mb-6">আপনি কি সত্যি তথ্য টি আপনার ডেসবোর্ড থেকে মুছে ফেলতে চান?</p>
+            <div className="flex justify-end space-x-3">
+              <button onClick={() => setIsDeleteModalOpen(false)} className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 font-medium">Cancel</button>
+              <button onClick={confirmDelete} className="px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600 font-medium">OK, Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Patient Edit Image Modal */}
+      {isEditModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white p-6 rounded-lg shadow-xl max-w-sm w-full">
+            <h3 className="text-lg font-medium text-gray-900 mb-4">স্ক্যানের ছবি পরিবর্তন করুন</h3>
+            <p className="text-sm text-gray-500 mb-4">Scan ID: #{scanToEdit?.id}</p>
+            <input type="file" onChange={(e) => setNewImage(e.target.files[0])} accept="image/*" className="mb-4 w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-sky-50 file:text-sky-700 hover:file:bg-sky-100" />
+            <div className="flex justify-end space-x-3 mt-6">
+              <button onClick={() => setIsEditModalOpen(false)} className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 font-medium">Cancel</button>
+              <button onClick={handleEditSubmit} className="px-4 py-2 bg-sky-500 text-white rounded-md hover:bg-sky-600 font-medium">Upload & Save</button>
+            </div>
           </div>
         </div>
       )}
