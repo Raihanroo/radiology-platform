@@ -22,7 +22,7 @@ export default function Dashboard() {
   const [selectedConsultScan, setSelectedConsultScan] = useState(null);
   const [consultData, setConsultData] = useState({ clinical_assessment: '', treatment_recommendation: '', summary: '' });
   const [consultError, setConsultError] = useState('');
-  const [isGeneratingDraft, setIsGeneratingDraft] = useState(false); // AI Draft এর জন্য State
+  const [isGeneratingDraft, setIsGeneratingDraft] = useState(false);
 
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [reportData, setReportData] = useState(null);
@@ -32,12 +32,16 @@ export default function Dashboard() {
   const [aiHistory, setAiHistory] = useState([]);
   const [aiLoading, setAiLoading] = useState(false);
 
-  // Edit এবং Delete এর জন্য State
+  // Edit, Delete এবং Follow-up এর জন্য State
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [scanToDelete, setScanToDelete] = useState(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [scanToEdit, setScanToEdit] = useState(null);
   const [newImage, setNewImage] = useState(null);
+
+  // Follow-up Appointment State
+  const [isAppointmentModalOpen, setIsAppointmentModalOpen] = useState(false);
+  const [appointmentData, setAppointmentData] = useState({ doctor: '', appointment_date: '' });
 
   const username = localStorage.getItem('username');
   const role = localStorage.getItem('role');
@@ -101,17 +105,13 @@ export default function Dashboard() {
     setSelectedScan(scan); setReviewData({ status: 'approved', observations: '', corrected_classification: scan.analysis?.classification || '' }); setIsReviewModalOpen(true);
   };
 
-  // ডাক্তারের AI ড্রাফট জেনারেট করার ফাংশন
   const handleGenerateDraft = async () => {
     setIsGeneratingDraft(true);
     try {
       const res = await axios.post(`http://127.0.0.1:8000/api/scans/${selectedConsultScan.id}/draft-report/`, {}, { headers: { Authorization: `Bearer ${token}` } });
       setConsultData(prev => ({ ...prev, summary: res.data.draft }));
-    } catch (err) {
-      alert("Failed to generate AI draft. Please try manually.");
-    } finally {
-      setIsGeneratingDraft(false);
-    }
+    } catch (err) { alert("Failed to generate AI draft."); } 
+    finally { setIsGeneratingDraft(false); }
   };
 
   const handleConsultSubmit = async (e) => {
@@ -122,16 +122,10 @@ export default function Dashboard() {
         treatment_recommendation: consultData.treatment_recommendation
       }, { headers: { Authorization: `Bearer ${token}` } });
       
-      await axios.post(`http://127.0.0.1:8000/api/scans/${selectedConsultScan.id}/generate-report/`, {
-        summary: consultData.summary
-      }, { headers: { Authorization: `Bearer ${token}` } });
-
+      await axios.post(`http://127.0.0.1:8000/api/scans/${selectedConsultScan.id}/generate-report/`, { summary: consultData.summary }, { headers: { Authorization: `Bearer ${token}` } });
       await axios.post(`http://127.0.0.1:8000/api/scans/${selectedConsultScan.id}/approve-report/`, {}, { headers: { Authorization: `Bearer ${token}` } });
 
-      setIsConsultModalOpen(false); 
-      setSelectedConsultScan(null); 
-      setConsultData({ clinical_assessment: '', treatment_recommendation: '', summary: '' }); 
-      fetchConsultQueue();
+      setIsConsultModalOpen(false); setSelectedConsultScan(null); setConsultData({ clinical_assessment: '', treatment_recommendation: '', summary: '' }); fetchConsultQueue();
     } catch (err) { setConsultError("Failed to process consultation."); }
   };
   const openConsultModal = (scan) => {
@@ -140,8 +134,7 @@ export default function Dashboard() {
 
   const openReportModal = (scan) => {
     setReportData(scan);
-    setAiHistory([]); 
-    setAiQuestion('');
+    setAiHistory([]); setAiQuestion('');
     setIsReportModalOpen(true);
   };
 
@@ -156,12 +149,9 @@ export default function Dashboard() {
     } catch (err) {
       const errorMsg = err.response?.data?.error || "Sorry, I couldn't process your request right now.";
       setAiHistory([...aiHistory, { q: aiQuestion, a: errorMsg }]);
-    } finally {
-      setAiLoading(false);
-    }
+    } finally { setAiLoading(false); }
   };
 
-  // পেশেন্ট ডিলিট ফাংশন
   const handleDeleteClick = (scan) => { setScanToDelete(scan); setIsDeleteModalOpen(true); };
   const confirmDelete = async () => {
     try {
@@ -170,7 +160,6 @@ export default function Dashboard() {
     } catch (err) { alert("Failed to delete scan."); }
   };
 
-  // পেশেন্ট এডিট ফাংশন
   const handleEditClick = (scan) => { setScanToEdit(scan); setIsEditModalOpen(true); };
   const handleEditSubmit = async () => {
     if (!newImage) return alert("Please select a new image first.");
@@ -179,6 +168,22 @@ export default function Dashboard() {
       await axios.patch(`http://127.0.0.1:8000/api/scans/my-scans/${scanToEdit.id}/`, formData, { headers: { Authorization: `Bearer ${token}` } });
       fetchMyScans(); setIsEditModalOpen(false); setNewImage(null); setScanToEdit(null);
     } catch (err) { alert("Failed to update image."); }
+  };
+
+  // Follow-up Appointment ফাংশন
+  const openAppointmentModal = () => {
+    setAppointmentData({ doctor: '', appointment_date: '' });
+    setIsAppointmentModalOpen(true);
+  };
+  const handleBookAppointment = async (e) => {
+    e.preventDefault();
+    try {
+      await axios.post(`http://127.0.0.1:8000/api/scans/${reportData.id}/book-appointment/`, appointmentData, { headers: { Authorization: `Bearer ${token}` } });
+      alert("Follow-up appointment booked successfully!");
+      setIsAppointmentModalOpen(false);
+    } catch (err) {
+      alert(err.response?.data?.error || "Failed to book appointment. Check Doctor ID.");
+    }
   };
 
   return (
@@ -256,9 +261,7 @@ export default function Dashboard() {
                         </div>
                         <div className="flex flex-col items-end space-y-2">
                           {scan.final_report?.status === 'approved' ? (
-                            <button onClick={() => openReportModal(scan)} className="px-3 py-1.5 text-xs font-medium text-white bg-sky-500 rounded-md hover:bg-sky-600">
-                              View Report
-                            </button>
+                            <button onClick={() => openReportModal(scan)} className="px-3 py-1.5 text-xs font-medium text-white bg-sky-500 rounded-md hover:bg-sky-600">View Report</button>
                           ) : (
                             <span className="px-2.5 py-1 text-xs font-medium rounded-full bg-yellow-50 text-yellow-700 border border-yellow-100">In Review</span>
                           )}
@@ -325,13 +328,11 @@ export default function Dashboard() {
         )}
       </div>
 
-      {/* Radiologist Review Modal (সেগমেন্টেশন ছবি যুক্ত করা হয়েছে) */}
+      {/* Radiologist Review Modal */}
       {isReviewModalOpen && selectedScan && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white p-6 rounded-lg shadow-xl max-w-lg w-full">
             <h3 className="text-lg font-medium text-gray-900 mb-4">Review Scan #{selectedScan.id}</h3>
-            
-            {/* Original & Segmented Images */}
             <div className="mb-4 flex space-x-4 p-3 bg-gray-50 rounded-md border border-gray-200">
               <div className="text-center">
                 <img src={getImageUrl(selectedScan.original_image)} alt="Original" className="w-32 h-32 object-cover rounded-md border border-gray-300" />
@@ -344,13 +345,11 @@ export default function Dashboard() {
                 </div>
               )}
             </div>
-
             <div className="mb-4 text-sm text-gray-600 space-y-1">
               <p><b>Patient:</b> {selectedScan.patient}</p>
               <p><b>AI Classification:</b> {selectedScan.analysis?.classification}</p>
               <p><b>Tumor Area:</b> {selectedScan.analysis?.tumor_area_percentage?.toFixed(2)}%</p>
             </div>
-
             {reviewError && <div className="p-3 text-sm text-red-700 bg-red-50 border border-red-100 rounded-md mb-4">{reviewError}</div>}
             <form onSubmit={handleReviewSubmit} className="space-y-4">
               <div>
@@ -378,15 +377,13 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Doctor Consultation Modal (সেগমেন্টেশন ছবি এবং AI Draft যুক্ত করা হয়েছে) */}
+      {/* Doctor Consultation Modal */}
       {isConsultModalOpen && selectedConsultScan && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white p-6 rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <h3 className="text-lg font-medium text-gray-900 mb-4">Consult & Approve Report #{selectedConsultScan.id}</h3>
-            
             <div className="mb-4 p-4 bg-gray-50 rounded-md border border-gray-200">
               <div className="flex space-x-4">
-                {/* Original & Segmented Images */}
                 <div className="flex space-x-2">
                   <div className="text-center">
                     <img src={getImageUrl(selectedConsultScan.original_image)} alt="Original" className="w-28 h-28 object-cover rounded-md border border-gray-300" />
@@ -410,9 +407,7 @@ export default function Dashboard() {
                 </div>
               </div>
             </div>
-
             {consultError && <div className="p-3 text-sm text-red-700 bg-red-50 border border-red-100 rounded-md mb-4">{consultError}</div>}
-            
             <form onSubmit={handleConsultSubmit} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700">Clinical Assessment</label>
@@ -445,17 +440,15 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Patient Report Modal (PDF + AI Assistant + Segmentation Image) */}
+      {/* Patient Report Modal (PDF + AI Assistant + Book Follow-up) */}
       {isReportModalOpen && reportData && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             
             <div id="printable-report" className="relative p-8">
-              
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-10 mix-blend-multiply" style={{ zIndex: 0 }}>
                 <img src="/logo.png" alt="Watermark" className="w-3/4 h-3/4 object-contain" />
               </div>
-
               <div className="relative z-10">
                 <div className="flex justify-between items-center border-b-2 border-gray-800 pb-4 mb-6">
                   <div className="flex items-center space-x-3">
@@ -470,8 +463,6 @@ export default function Dashboard() {
                     <p>Date: {new Date(reportData.final_report?.approved_at || Date.now()).toLocaleDateString()}</p>
                   </div>
                 </div>
-
-                {/* Original & Segmented Images */}
                 {reportData.analysis?.segmented_overlay && (
                   <div className="mb-6 flex space-x-4 justify-center">
                     <div className="text-center">
@@ -484,7 +475,6 @@ export default function Dashboard() {
                     </div>
                   </div>
                 )}
-
                 <div className="mb-6 grid grid-cols-2 gap-4 text-sm">
                   <div>
                     <p className="text-gray-500">Patient Name:</p>
@@ -495,35 +485,25 @@ export default function Dashboard() {
                     <p className="font-semibold text-gray-900 text-base">{reportData.scan_type || 'MRI Brain'}</p>
                   </div>
                 </div>
-
                 <div className="mb-6 p-4 bg-slate-50 rounded-md border border-gray-200">
                   <h3 className="text-md font-semibold text-gray-800 mb-2">Final Diagnosis</h3>
                   <p className="text-lg text-gray-900 capitalize">{reportData.final_report?.final_diagnosis || 'N/A'}</p>
                 </div>
-
                 <div className="mb-6">
                   <h3 className="text-md font-semibold text-gray-800 mb-2">Doctor's Clinical Assessment</h3>
                   <p className="text-sm text-gray-700 whitespace-pre-line">{reportData.doctor_consultation?.clinical_assessment || 'N/A'}</p>
                 </div>
-
                 <div className="mb-6">
                   <h3 className="text-md font-semibold text-gray-800 mb-2">Treatment Recommendation</h3>
                   <p className="text-sm text-gray-700 whitespace-pre-line">{reportData.doctor_consultation?.treatment_recommendation || 'N/A'}</p>
                 </div>
-
                 <div className="mb-6">
                   <h3 className="text-md font-semibold text-gray-800 mb-2">Report Summary</h3>
                   <p className="text-sm text-gray-700 whitespace-pre-line">{reportData.final_report?.summary || 'N/A'}</p>
                 </div>
-
                 <div className="mt-10 pt-6 border-t border-gray-200 flex justify-between items-center text-sm text-gray-600">
-                  <div>
-                    <p>Approved By: Dr. {reportData.final_report?.approved_by || 'N/A'}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-semibold">Signature</p>
-                    <div className="w-40 border-b border-gray-400 mt-6"></div>
-                  </div>
+                  <div><p>Approved By: Dr. {reportData.final_report?.approved_by || 'N/A'}</p></div>
+                  <div className="text-right"><p className="font-semibold">Signature</p><div className="w-40 border-b border-gray-400 mt-6"></div></div>
                 </div>
               </div>
             </div>
@@ -538,45 +518,27 @@ export default function Dashboard() {
                 {aiHistory.length === 0 && <p className="text-sm text-gray-500 text-center py-4">Have a question about your report? Ask below!</p>}
                 {aiHistory.map((chat, idx) => (
                   <div key={idx} className="text-sm space-y-1">
-                    <div className="flex justify-end">
-                      <div className="bg-sky-500 text-white px-3 py-1.5 rounded-lg max-w-[80%]">
-                        {chat.q}
-                      </div>
-                    </div>
-                    <div className="flex justify-start">
-                      <div className="bg-gray-200 text-gray-800 px-3 py-1.5 rounded-lg max-w-[80%] whitespace-pre-line">
-                        {chat.a}
-                      </div>
-                    </div>
+                    <div className="flex justify-end"><div className="bg-sky-500 text-white px-3 py-1.5 rounded-lg max-w-[80%]">{chat.q}</div></div>
+                    <div className="flex justify-start"><div className="bg-gray-200 text-gray-800 px-3 py-1.5 rounded-lg max-w-[80%] whitespace-pre-line">{chat.a}</div></div>
                   </div>
                 ))}
               </div>
               <form onSubmit={handleAskAI} className="flex space-x-2">
-                <input
-                  type="text"
-                  value={aiQuestion}
-                  onChange={(e) => setAiQuestion(e.target.value)}
-                  className="flex-1 px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-sky-500 text-sm"
-                  placeholder="e.g., What does Glioma mean? What should I do next?"
-                  disabled={aiLoading}
-                />
+                <input type="text" value={aiQuestion} onChange={(e) => setAiQuestion(e.target.value)} className="flex-1 px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-sky-500 text-sm" placeholder="e.g., What does Glioma mean?" disabled={aiLoading} />
                 <button type="submit" disabled={aiLoading || !aiQuestion.trim()} className="px-4 py-2 bg-sky-500 text-white rounded-md hover:bg-sky-600 text-sm font-medium disabled:bg-sky-300 flex items-center">
-                  {aiLoading ? (
-                    <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                  ) : 'Ask AI'}
+                  {aiLoading ? (<svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>) : 'Ask AI'}
                 </button>
               </form>
             </div>
 
             {/* Action Buttons (No print) */}
-            <div className="p-4 border-t flex justify-end space-x-3 no-print bg-white">
-              <button onClick={() => setIsReportModalOpen(false)} className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 font-medium">Close</button>
-              <button onClick={() => window.print()} className="px-4 py-2 bg-sky-500 text-white rounded-md hover:bg-sky-600 font-medium">Download as PDF</button>
+            <div className="p-4 border-t flex justify-between items-center no-print bg-white">
+              <button onClick={openAppointmentModal} className="px-4 py-2 bg-green-500 text-white rounded-md hover:bg-green-600 font-medium text-sm">Book Follow-up</button>
+              <div className="flex space-x-3">
+                <button onClick={() => setIsReportModalOpen(false)} className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 font-medium">Close</button>
+                <button onClick={() => window.print()} className="px-4 py-2 bg-sky-500 text-white rounded-md hover:bg-sky-600 font-medium">Download as PDF</button>
+              </div>
             </div>
-
           </div>
         </div>
       )}
@@ -606,6 +568,29 @@ export default function Dashboard() {
               <button onClick={() => setIsEditModalOpen(false)} className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 font-medium">Cancel</button>
               <button onClick={handleEditSubmit} className="px-4 py-2 bg-sky-500 text-white rounded-md hover:bg-sky-600 font-medium">Upload & Save</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Book Follow-up Appointment Modal */}
+      {isAppointmentModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white p-6 rounded-lg shadow-xl max-w-sm w-full">
+            <h3 className="text-lg font-medium text-gray-900 mb-4">Book Follow-up Appointment</h3>
+            <form onSubmit={handleBookAppointment} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Doctor ID</label>
+                <input type="number" required value={appointmentData.doctor} onChange={(e) => setAppointmentData({ ...appointmentData, doctor: e.target.value })} className="w-full px-3 py-2 mt-1 bg-white border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-sky-500" placeholder="Enter Doctor's ID (e.g., 4)" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Appointment Date & Time</label>
+                <input type="datetime-local" required value={appointmentData.appointment_date} onChange={(e) => setAppointmentData({ ...appointmentData, appointment_date: e.target.value })} className="w-full px-3 py-2 mt-1 bg-white border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-sky-500" />
+              </div>
+              <div className="flex justify-end space-x-3 pt-4">
+                <button type="button" onClick={() => setIsAppointmentModalOpen(false)} className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 font-medium">Cancel</button>
+                <button type="submit" className="px-4 py-2 bg-green-500 text-white rounded-md hover:bg-green-600 font-medium">Confirm Booking</button>
+              </div>
+            </form>
           </div>
         </div>
       )}
