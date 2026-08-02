@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import axios from 'axios';
-import { useNavigate, Link } from 'react-router-dom'; // Link ইম্পোর্ট করা হয়েছে
+import { useNavigate, Link } from 'react-router-dom';
 
 export default function Login() {
   const [username, setUsername] = useState('');
@@ -37,7 +37,11 @@ export default function Login() {
     <div className="flex w-full h-screen items-center justify-center bg-slate-50 text-gray-900 p-4">
       <div className="w-full max-w-md p-8 space-y-6 bg-white rounded-xl shadow-lg border border-gray-100">
         <div className="text-center">
-          <h1 className="text-2xl font-bold tracking-tight text-gray-900">AI Radiology Platform</h1>
+          {/* লোগো এবং প্ল্যাটফর্মের নাম */}
+          <div className="flex flex-col items-center justify-center mb-4">
+            <img src="/logo.png" alt="Logo" className="h-20 w-20 object-contain mb-3" />
+            <h1 className="text-2xl font-bold tracking-tight text-gray-900">AI Assisted Radiology Platform</h1>
+          </div>
           <p className="mt-2 text-sm text-gray-500">Please login to your account</p>
         </div>
         

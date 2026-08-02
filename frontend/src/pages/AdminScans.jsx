@@ -11,7 +11,6 @@ export default function AdminScans() {
   const [searchParams] = useSearchParams();
   const status = searchParams.get('status');
 
-  // State for Modals
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [scanToDelete, setScanToDelete] = useState(null);
   
@@ -19,7 +18,6 @@ export default function AdminScans() {
   const [scanToEdit, setScanToEdit] = useState(null);
   const [newImage, setNewImage] = useState(null);
 
-  // New State for Details Modal
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [selectedDetailScan, setSelectedDetailScan] = useState(null);
 
@@ -90,8 +88,15 @@ export default function AdminScans() {
     <div className="min-h-screen bg-slate-50 text-gray-900 p-8 font-sans">
       <div className="max-w-6xl mx-auto">
         
-        <div className="flex justify-between items-center mb-6">
-          <h1 className="text-2xl font-bold tracking-tight text-gray-900">{pageTitle}</h1>
+        {/* Customized Header with Logo and Title */}
+        <div className="flex justify-between items-center mb-6 pb-4 border-b border-gray-200">
+          <div className="flex items-center space-x-3">
+            <img src="/logo.png" alt="Logo" className="h-10 w-auto object-contain" />
+            <div>
+              <h1 className="text-xl font-bold tracking-tight text-gray-900">{pageTitle}</h1>
+              <p className="text-sm text-gray-500">AI Assisted Radiology Platform</p>
+            </div>
+          </div>
           <button onClick={() => navigate('/dashboard')} className="px-4 py-2 font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors">
             Back to Dashboard
           </button>
@@ -139,16 +144,9 @@ export default function AdminScans() {
                       </td>
                       <td className="p-4 text-center">
                         <div className="flex space-x-2 justify-center">
-                          {/* View Details Button */}
-                          <button onClick={() => openDetailModal(scan)} className="px-3 py-1 text-xs font-medium text-gray-700 bg-gray-50 border border-gray-200 rounded-md hover:bg-gray-100">
-                            View Details
-                          </button>
-                          <button onClick={() => handleEditClick(scan)} className="px-3 py-1 text-xs font-medium text-sky-700 bg-sky-50 border border-sky-200 rounded-md hover:bg-sky-100">
-                            Edit
-                          </button>
-                          <button onClick={() => handleDeleteClick(scan)} className="px-3 py-1 text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-md hover:bg-red-100">
-                            Delete
-                          </button>
+                          <button onClick={() => openDetailModal(scan)} className="px-3 py-1 text-xs font-medium text-gray-700 bg-gray-50 border border-gray-200 rounded-md hover:bg-gray-100">View Details</button>
+                          <button onClick={() => handleEditClick(scan)} className="px-3 py-1 text-xs font-medium text-sky-700 bg-sky-50 border border-sky-200 rounded-md hover:bg-sky-100">Edit</button>
+                          <button onClick={() => handleDeleteClick(scan)} className="px-3 py-1 text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-md hover:bg-red-100">Delete</button>
                         </div>
                       </td>
                     </tr>
@@ -191,75 +189,96 @@ export default function AdminScans() {
         </div>
       )}
 
-      {/* --- NEW: Details View Modal --- */}
+      {/* Details View Modal (with PDF Watermark) */}
       {isDetailModalOpen && selectedDetailScan && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white p-8 rounded-lg shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-xl font-bold text-gray-900">Scan Audit Details #{selectedDetailScan.id}</h3>
-              <button onClick={() => setIsDetailModalOpen(false)} className="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
-            </div>
+            
+            <div id="printable-report" className="relative p-2">
+              
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-10 mix-blend-multiply" style={{ zIndex: 0 }}>
+                <img src="/logo.png" alt="Watermark" className="w-3/4 h-3/4 object-contain" />
+              </div>
 
-            {/* Patient & Image Section */}
-            <div className="flex space-x-6 mb-6 p-4 bg-slate-50 rounded-lg border border-gray-200">
-              <img src={getImageUrl(selectedDetailScan.original_image)} alt={`Scan ${selectedDetailScan.id}`} className="w-32 h-32 object-cover rounded-md border border-gray-300" />
-              <div className="text-sm text-gray-700 space-y-1">
-                <p><b>Patient:</b> {selectedDetailScan.patient}</p>
-                <p><b>Scan Type:</b> {selectedDetailScan.scan_type || 'N/A'}</p>
-                <p><b>Uploaded At:</b> {new Date(selectedDetailScan.uploaded_at).toLocaleString()}</p>
-                <p><b>AI Prediction:</b> <span className="capitalize font-medium">{selectedDetailScan.analysis?.classification}</span> ({selectedDetailScan.analysis?.confidence_score ? (selectedDetailScan.analysis.confidence_score > 1 ? selectedDetailScan.analysis.confidence_score : selectedDetailScan.analysis.confidence_score * 100).toFixed(2) : 0}%)</p>
-                <p><b>Tumor Area:</b> {selectedDetailScan.analysis?.tumor_area_percentage?.toFixed(2)}%</p>
+              <div className="relative z-10">
+                {/* PDF Header with Logo and Title */}
+                <div className="flex justify-between items-center mb-6 border-b-2 border-gray-800 pb-4">
+                  <div className="flex items-center space-x-3">
+                    <img src="/logo.png" alt="Logo" className="h-12 object-contain" />
+                    <div>
+                      <h2 className="text-xl font-bold text-gray-900">AI Assisted Radiology Platform</h2>
+                      <p className="text-sm text-gray-500">Scan Audit & Medical Report</p>
+                    </div>
+                  </div>
+                  <div className="text-right text-sm text-gray-600">
+                    <p>Report ID: #{selectedDetailScan.id}</p>
+                    <p>Date: {new Date(selectedDetailScan.uploaded_at).toLocaleDateString()}</p>
+                  </div>
+                </div>
+
+                <div className="flex space-x-6 mb-6 p-4 bg-slate-50 rounded-lg border border-gray-200">
+                  <img src={getImageUrl(selectedDetailScan.original_image)} alt={`Scan ${selectedDetailScan.id}`} className="w-32 h-32 object-cover rounded-md border border-gray-300" />
+                  <div className="text-sm text-gray-700 space-y-1">
+                    <p><b>Patient:</b> {selectedDetailScan.patient}</p>
+                    <p><b>Scan Type:</b> {selectedDetailScan.scan_type || 'N/A'}</p>
+                    <p><b>Uploaded At:</b> {new Date(selectedDetailScan.uploaded_at).toLocaleString()}</p>
+                    <p><b>AI Prediction:</b> <span className="capitalize font-medium">{selectedDetailScan.analysis?.classification}</span> ({selectedDetailScan.analysis?.confidence_score ? (selectedDetailScan.analysis.confidence_score > 1 ? selectedDetailScan.analysis.confidence_score : selectedDetailScan.analysis.confidence_score * 100).toFixed(2) : 0}%)</p>
+                    <p><b>Tumor Area:</b> {selectedDetailScan.analysis?.tumor_area_percentage?.toFixed(2)}%</p>
+                  </div>
+                </div>
+
+                <div className="mb-6 p-4 border-l-4 border-sky-500 bg-sky-50/50 rounded-r-lg">
+                  <h4 className="text-md font-semibold text-sky-800 mb-2">🩻 Radiologist Review</h4>
+                  {selectedDetailScan.radiologist_review ? (
+                    <div className="text-sm text-gray-700 space-y-1">
+                      <p><b>Status:</b> <span className="capitalize">{selectedDetailScan.radiologist_review.status}</span></p>
+                      <p><b>Corrected Diagnosis:</b> {selectedDetailScan.radiologist_review.corrected_classification || 'N/A'}</p>
+                      <p><b>Observations:</b> {selectedDetailScan.radiologist_review.observations || 'N/A'}</p>
+                      <p><b>Reviewed By:</b> {selectedDetailScan.radiologist_review.radiologist} at {new Date(selectedDetailScan.radiologist_review.reviewed_at).toLocaleString()}</p>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-500 italic">Radiologist review pending...</p>
+                  )}
+                </div>
+
+                <div className="mb-6 p-4 border-l-4 border-green-500 bg-green-50/50 rounded-r-lg">
+                  <h4 className="text-md font-semibold text-green-800 mb-2">👨‍⚕️ Doctor Consultation & Final Report</h4>
+                  {selectedDetailScan.doctor_consultation ? (
+                    <div className="text-sm text-gray-700 space-y-1">
+                      <p><b>Clinical Assessment:</b> {selectedDetailScan.doctor_consultation.clinical_assessment || 'N/A'}</p>
+                      <p><b>Treatment Recommendation:</b> {selectedDetailScan.doctor_consultation.treatment_recommendation || 'N/A'}</p>
+                      <p><b>Consulted By:</b> {selectedDetailScan.doctor_consultation.doctor} at {new Date(selectedDetailScan.doctor_consultation.consulted_at).toLocaleString()}</p>
+                      
+                      <div className="mt-3 pt-3 border-t border-green-200">
+                        <p><b>Final Diagnosis:</b> {selectedDetailScan.final_report?.final_diagnosis || 'N/A'}</p>
+                        <p><b>Report Summary:</b> {selectedDetailScan.final_report?.summary || 'N/A'}</p>
+                        <p>
+                          <b>Report Status:</b> 
+                          <span className={`ml-2 px-2 py-0.5 text-xs font-medium rounded-full ${selectedDetailScan.final_report?.status === 'approved' ? 'bg-sky-100 text-sky-800' : 'bg-yellow-100 text-yellow-800'}`}>
+                            {selectedDetailScan.final_report?.status || 'N/A'}
+                          </span>
+                        </p>
+                        {selectedDetailScan.final_report?.status === 'approved' ? (
+                          <p className="text-green-600 font-medium mt-1">✅ Patient has received this report.</p>
+                        ) : (
+                          <p className="text-yellow-600 font-medium mt-1">⏳ Report is in draft. Patient cannot see it yet.</p>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-500 italic">Doctor consultation pending...</p>
+                  )}
+                </div>
               </div>
             </div>
 
-            {/* Radiologist Review Section */}
-            <div className="mb-6 p-4 border-l-4 border-sky-500 bg-sky-50/50 rounded-r-lg">
-              <h4 className="text-md font-semibold text-sky-800 mb-2">🩻 Radiologist Review</h4>
-              {selectedDetailScan.radiologist_review ? (
-                <div className="text-sm text-gray-700 space-y-1">
-                  <p><b>Status:</b> <span className="capitalize">{selectedDetailScan.radiologist_review.status}</span></p>
-                  <p><b>Corrected Diagnosis:</b> {selectedDetailScan.radiologist_review.corrected_classification || 'N/A'}</p>
-                  <p><b>Observations:</b> {selectedDetailScan.radiologist_review.observations || 'N/A'}</p>
-                  <p><b>Reviewed By:</b> {selectedDetailScan.radiologist_review.radiologist} at {new Date(selectedDetailScan.radiologist_review.reviewed_at).toLocaleString()}</p>
-                </div>
-              ) : (
-                <p className="text-sm text-gray-500 italic">Radiologist review pending...</p>
-              )}
-            </div>
-
-            {/* Doctor Consultation & Final Report Section */}
-            <div className="mb-6 p-4 border-l-4 border-green-500 bg-green-50/50 rounded-r-lg">
-              <h4 className="text-md font-semibold text-green-800 mb-2">👨‍⚕️ Doctor Consultation & Final Report</h4>
-              {selectedDetailScan.doctor_consultation ? (
-                <div className="text-sm text-gray-700 space-y-1">
-                  <p><b>Clinical Assessment:</b> {selectedDetailScan.doctor_consultation.clinical_assessment || 'N/A'}</p>
-                  <p><b>Treatment Recommendation:</b> {selectedDetailScan.doctor_consultation.treatment_recommendation || 'N/A'}</p>
-                  <p><b>Consulted By:</b> {selectedDetailScan.doctor_consultation.doctor} at {new Date(selectedDetailScan.doctor_consultation.consulted_at).toLocaleString()}</p>
-                  
-                  <div className="mt-3 pt-3 border-t border-green-200">
-                    <p><b>Final Diagnosis:</b> {selectedDetailScan.final_report?.final_diagnosis || 'N/A'}</p>
-                    <p><b>Report Summary:</b> {selectedDetailScan.final_report?.summary || 'N/A'}</p>
-                    <p>
-                      <b>Report Status:</b> 
-                      <span className={`ml-2 px-2 py-0.5 text-xs font-medium rounded-full ${selectedDetailScan.final_report?.status === 'approved' ? 'bg-sky-100 text-sky-800' : 'bg-yellow-100 text-yellow-800'}`}>
-                        {selectedDetailScan.final_report?.status || 'N/A'}
-                      </span>
-                    </p>
-                    {selectedDetailScan.final_report?.status === 'approved' ? (
-                      <p className="text-green-600 font-medium mt-1">✅ Patient has received this report.</p>
-                    ) : (
-                      <p className="text-yellow-600 font-medium mt-1">⏳ Report is in draft. Patient cannot see it yet.</p>
-                    )}
-                  </div>
-                </div>
-              ) : (
-                <p className="text-sm text-gray-500 italic">Doctor consultation pending...</p>
-              )}
-            </div>
-
-            <div className="flex justify-end pt-4">
+            <div className="p-4 border-t flex justify-end space-x-3 no-print mt-4">
               <button onClick={() => setIsDetailModalOpen(false)} className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 font-medium">Close</button>
+              {selectedDetailScan.final_report?.status === 'approved' && (
+                <button onClick={() => window.print()} className="px-4 py-2 bg-sky-500 text-white rounded-md hover:bg-sky-600 font-medium">Download as PDF</button>
+              )}
             </div>
+
           </div>
         </div>
       )}

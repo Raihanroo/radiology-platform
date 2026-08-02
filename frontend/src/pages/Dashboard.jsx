@@ -13,17 +13,18 @@ export default function Dashboard() {
   const [reviewQueue, setReviewQueue] = useState([]);
   const [consultQueue, setConsultQueue] = useState([]);
   
-  // রেডিওলজিস্ট রিভিউ মডালের জন্য State
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
   const [selectedScan, setSelectedScan] = useState(null);
   const [reviewData, setReviewData] = useState({ status: 'approved', observations: '', corrected_classification: '' });
   const [reviewError, setReviewError] = useState('');
 
-  // ডাক্তার কনসালটেশন মডালের জন্য State
   const [isConsultModalOpen, setIsConsultModalOpen] = useState(false);
   const [selectedConsultScan, setSelectedConsultScan] = useState(null);
   const [consultData, setConsultData] = useState({ clinical_assessment: '', treatment_recommendation: '', summary: '' });
   const [consultError, setConsultError] = useState('');
+
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [reportData, setReportData] = useState(null);
 
   const username = localStorage.getItem('username');
   const role = localStorage.getItem('role');
@@ -87,7 +88,6 @@ export default function Dashboard() {
     setSelectedScan(scan); setReviewData({ status: 'approved', observations: '', corrected_classification: scan.analysis?.classification || '' }); setIsReviewModalOpen(true);
   };
 
-  // ডাক্তার কনসালটেশন ও রিপোর্ট অ্যাপ্রুভ সাবমিট
   const handleConsultSubmit = async (e) => {
     e.preventDefault(); setConsultError('');
     try {
@@ -106,22 +106,29 @@ export default function Dashboard() {
       setSelectedConsultScan(null); 
       setConsultData({ clinical_assessment: '', treatment_recommendation: '', summary: '' }); 
       fetchConsultQueue();
-    } catch (err) { 
-      setConsultError("Failed to process consultation."); 
-      console.error("Consultation Error:", err.response?.data);
-    }
+    } catch (err) { setConsultError("Failed to process consultation."); }
   };
   const openConsultModal = (scan) => {
     setSelectedConsultScan(scan); setConsultData({ clinical_assessment: '', treatment_recommendation: '', summary: '' }); setIsConsultModalOpen(true);
   };
 
+  const openReportModal = (scan) => {
+    setReportData(scan);
+    setIsReportModalOpen(true);
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 text-gray-900 p-8 font-sans">
       <div className="max-w-6xl mx-auto">
-        <div className="flex justify-between items-center mb-8">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight text-gray-900">Welcome, {username}!</h1>
-            <p className="text-gray-500 mt-1 text-sm">Role: <span className="capitalize text-sky-600 font-semibold border border-sky-100 bg-sky-50 px-2 py-0.5 rounded-full text-xs">{role}</span></p>
+        
+        {/* Customized Header with Logo and Title */}
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 pb-6 border-b border-gray-200">
+          <div className="flex items-center space-x-4 mb-4 md:mb-0">
+            <img src="/logo.png" alt="Logo" className="h-14 w-auto object-contain" />
+            <div>
+              <h1 className="text-xl font-bold tracking-tight text-gray-900">AI Assisted Radiology Platform</h1>
+              <p className="text-sm text-gray-500">Welcome, {username}! <span className="capitalize text-sky-600 font-semibold ml-1">({role})</span></p>
+            </div>
           </div>
           <div className="flex space-x-3">
             {(role === 'admin' || role === 'super_admin') && (
@@ -184,7 +191,15 @@ export default function Dashboard() {
                           <p className="text-sm text-gray-500 capitalize">AI: {scan.analysis?.classification || 'Processing...'}</p>
                           <p className="text-xs text-gray-400 mt-1">{new Date(scan.uploaded_at).toLocaleDateString()}</p>
                         </div>
-                        <div>{scan.final_report?.status === 'approved' ? <span className="px-2.5 py-1 text-xs font-medium rounded-full bg-sky-50 text-sky-700 border border-sky-100">Report Ready</span> : <span className="px-2.5 py-1 text-xs font-medium rounded-full bg-yellow-50 text-yellow-700 border border-yellow-100">In Review</span>}</div>
+                        <div>
+                          {scan.final_report?.status === 'approved' ? (
+                            <button onClick={() => openReportModal(scan)} className="px-3 py-1.5 text-xs font-medium text-white bg-sky-500 rounded-md hover:bg-sky-600">
+                              View Report
+                            </button>
+                          ) : (
+                            <span className="px-2.5 py-1 text-xs font-medium rounded-full bg-yellow-50 text-yellow-700 border border-yellow-100">In Review</span>
+                          )}
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -280,13 +295,12 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Doctor Consultation Modal (বিস্তারিত তথ্য সহ আপডেট করা হয়েছে) */}
+      {/* Doctor Consultation Modal */}
       {isConsultModalOpen && selectedConsultScan && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white p-6 rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <h3 className="text-lg font-medium text-gray-900 mb-4">Consult & Approve Report #{selectedConsultScan.id}</h3>
             
-            {/* রেডিওলজিস্ট এবং AI এর বিস্তারিত তথ্য */}
             <div className="mb-4 p-4 bg-gray-50 rounded-md border border-gray-200">
               <div className="flex space-x-4">
                 <img src={getImageUrl(selectedConsultScan.original_image)} alt={`Scan ${selectedConsultScan.id}`} className="w-28 h-28 object-cover rounded-md border border-gray-300" />
@@ -325,6 +339,86 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+
+      {/* Patient Report Modal (PDF Downloadable) */}
+      {isReportModalOpen && reportData && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            
+            <div id="printable-report" className="relative p-8">
+              
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-10 mix-blend-multiply" style={{ zIndex: 0 }}>
+                <img src="/logo.png" alt="Watermark" className="w-3/4 h-3/4 object-contain" />
+              </div>
+
+              <div className="relative z-10">
+                {/* PDF Header with Logo and Title */}
+                <div className="flex justify-between items-center border-b-2 border-gray-800 pb-4 mb-6">
+                  <div className="flex items-center space-x-3">
+                    <img src="/logo.png" alt="Logo" className="h-12 object-contain" />
+                    <div>
+                      <h2 className="text-xl font-bold text-gray-900">AI Assisted Radiology Platform</h2>
+                      <p className="text-sm text-gray-500">Official Medical Report</p>
+                    </div>
+                  </div>
+                  <div className="text-right text-sm text-gray-600">
+                    <p>Report ID: #{reportData.id}</p>
+                    <p>Date: {new Date(reportData.final_report?.approved_at || Date.now()).toLocaleDateString()}</p>
+                  </div>
+                </div>
+
+                <div className="mb-6 grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <p className="text-gray-500">Patient Name:</p>
+                    <p className="font-semibold text-gray-900 text-base">{reportData.patient}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500">Scan Type:</p>
+                    <p className="font-semibold text-gray-900 text-base">{reportData.scan_type || 'MRI Brain'}</p>
+                  </div>
+                </div>
+
+                <div className="mb-6 p-4 bg-slate-50 rounded-md border border-gray-200">
+                  <h3 className="text-md font-semibold text-gray-800 mb-2">Final Diagnosis</h3>
+                  <p className="text-lg text-gray-900 capitalize">{reportData.final_report?.final_diagnosis || 'N/A'}</p>
+                </div>
+
+                <div className="mb-6">
+                  <h3 className="text-md font-semibold text-gray-800 mb-2">Doctor's Clinical Assessment</h3>
+                  <p className="text-sm text-gray-700 whitespace-pre-line">{reportData.doctor_consultation?.clinical_assessment || 'N/A'}</p>
+                </div>
+
+                <div className="mb-6">
+                  <h3 className="text-md font-semibold text-gray-800 mb-2">Treatment Recommendation</h3>
+                  <p className="text-sm text-gray-700 whitespace-pre-line">{reportData.doctor_consultation?.treatment_recommendation || 'N/A'}</p>
+                </div>
+
+                <div className="mb-6">
+                  <h3 className="text-md font-semibold text-gray-800 mb-2">Report Summary</h3>
+                  <p className="text-sm text-gray-700 whitespace-pre-line">{reportData.final_report?.summary || 'N/A'}</p>
+                </div>
+
+                <div className="mt-10 pt-6 border-t border-gray-200 flex justify-between items-center text-sm text-gray-600">
+                  <div>
+                    <p>Approved By: Dr. {reportData.final_report?.approved_by || 'N/A'}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-semibold">Signature</p>
+                    <div className="w-40 border-b border-gray-400 mt-6"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-4 border-t flex justify-end space-x-3 no-print">
+              <button onClick={() => setIsReportModalOpen(false)} className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 font-medium">Close</button>
+              <button onClick={() => window.print()} className="px-4 py-2 bg-sky-500 text-white rounded-md hover:bg-sky-600 font-medium">Download as PDF</button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
