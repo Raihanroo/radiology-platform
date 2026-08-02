@@ -58,8 +58,10 @@ export default function Register() {
     <div className="flex min-h-screen items-center justify-center bg-slate-50 text-gray-900 p-4">
       <div className="w-full max-w-md p-8 space-y-6 bg-white rounded-xl shadow-lg border border-gray-100">
         <div className="text-center">
-          <h1 className="text-2xl font-bold tracking-tight text-gray-900">Create Account</h1>
-          <p className="mt-2 text-sm text-gray-500">Register as a Patient</p>
+          {/* লোগো এবং ব্র্যান্ডিং টেক্সট যুক্ত করা হলো */}
+          <img src="/logo.png" alt="AI Radiology Platform" className="h-20 mx-auto mb-2 object-contain" />
+          <h1 className="text-2xl font-bold tracking-tight text-gray-900">AI Assisted Radiology Platform</h1>
+          <p className="mt-2 text-sm text-gray-500">Create Account (Patient Registration)</p>
         </div>
         
         {error && (

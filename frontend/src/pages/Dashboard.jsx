@@ -26,6 +26,11 @@ export default function Dashboard() {
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [reportData, setReportData] = useState(null);
 
+  // AI Assistant এর জন্য State
+  const [aiQuestion, setAiQuestion] = useState('');
+  const [aiHistory, setAiHistory] = useState([]);
+  const [aiLoading, setAiLoading] = useState(false);
+
   const username = localStorage.getItem('username');
   const role = localStorage.getItem('role');
   const token = localStorage.getItem('token');
@@ -114,14 +119,33 @@ export default function Dashboard() {
 
   const openReportModal = (scan) => {
     setReportData(scan);
+    setAiHistory([]); // নতুন রিপোর্ট খোলার সময় চ্যাট হিস্ট্রি মুছে ফেলা
+    setAiQuestion('');
     setIsReportModalOpen(true);
+  };
+
+  // AI কে প্রশ্ন করার ফাংশন
+  const handleAskAI = async (e) => {
+    e.preventDefault();
+    if (!aiQuestion.trim()) return;
+    setAiLoading(true);
+    try {
+      const res = await axios.post(`http://127.0.0.1:8000/api/scans/${reportData.id}/ask/`, { question: aiQuestion }, { headers: { Authorization: `Bearer ${token}` } });
+      setAiHistory([...aiHistory, { q: aiQuestion, a: res.data.answer }]);
+      setAiQuestion('');
+      } catch (err) {
+      // ব্যাকএন্ড থেকে আসা আসল এরর মেসেজটি দেখানো হচ্ছে
+      const errorMsg = err.response?.data?.error || "Sorry, I couldn't process your request right now.";
+      setAiHistory([...aiHistory, { q: aiQuestion, a: errorMsg }]);
+    } finally {
+      setAiLoading(false);
+    }
   };
 
   return (
     <div className="min-h-screen bg-slate-50 text-gray-900 p-8 font-sans">
       <div className="max-w-6xl mx-auto">
         
-        {/* Customized Header with Logo and Title */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 pb-6 border-b border-gray-200">
           <div className="flex items-center space-x-4 mb-4 md:mb-0">
             <img src="/logo.png" alt="Logo" className="h-14 w-auto object-contain" />
@@ -340,7 +364,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Patient Report Modal (PDF Downloadable) */}
+      {/* Patient Report Modal (PDF + AI Assistant) */}
       {isReportModalOpen && reportData && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
@@ -352,7 +376,6 @@ export default function Dashboard() {
               </div>
 
               <div className="relative z-10">
-                {/* PDF Header with Logo and Title */}
                 <div className="flex justify-between items-center border-b-2 border-gray-800 pb-4 mb-6">
                   <div className="flex items-center space-x-3">
                     <img src="/logo.png" alt="Logo" className="h-12 object-contain" />
@@ -410,7 +433,51 @@ export default function Dashboard() {
               </div>
             </div>
 
-            <div className="p-4 border-t flex justify-end space-x-3 no-print">
+            {/* AI Assistant Section (No print) */}
+            <div className="px-8 py-4 border-t no-print bg-slate-50">
+              <h3 className="text-md font-semibold text-gray-800 mb-3 flex items-center">
+                🤖 AI Medical Assistant
+                <span className="ml-2 text-xs font-normal text-gray-500 bg-sky-100 px-2 py-0.5 rounded-full">Powered by Gemini</span>
+              </h3>
+              <div className="space-y-3 mb-4 max-h-40 overflow-y-auto p-3 bg-white rounded-md border border-gray-200">
+                {aiHistory.length === 0 && <p className="text-sm text-gray-500 text-center py-4">Have a question about your report? Ask below!</p>}
+                {aiHistory.map((chat, idx) => (
+                  <div key={idx} className="text-sm space-y-1">
+                    <div className="flex justify-end">
+                      <div className="bg-sky-500 text-white px-3 py-1.5 rounded-lg max-w-[80%]">
+                        {chat.q}
+                      </div>
+                    </div>
+                    <div className="flex justify-start">
+                      <div className="bg-gray-200 text-gray-800 px-3 py-1.5 rounded-lg max-w-[80%] whitespace-pre-line">
+                        {chat.a}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <form onSubmit={handleAskAI} className="flex space-x-2">
+                <input
+                  type="text"
+                  value={aiQuestion}
+                  onChange={(e) => setAiQuestion(e.target.value)}
+                  className="flex-1 px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-sky-500 text-sm"
+                  placeholder="e.g., What does Glioma mean? What should I do next?"
+                  disabled={aiLoading}
+                />
+                <button type="submit" disabled={aiLoading || !aiQuestion.trim()} className="px-4 py-2 bg-sky-500 text-white rounded-md hover:bg-sky-600 text-sm font-medium disabled:bg-sky-300 flex items-center">
+                  {aiLoading ? (
+                    <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                  ) : 'Ask AI'}
+                </button>
+              </form>
+            </div>
+
+            {/* Action Buttons (No print) */}
+            <div className="p-4 border-t flex justify-end space-x-3 no-print bg-white">
               <button onClick={() => setIsReportModalOpen(false)} className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 font-medium">Close</button>
               <button onClick={() => window.print()} className="px-4 py-2 bg-sky-500 text-white rounded-md hover:bg-sky-600 font-medium">Download as PDF</button>
             </div>
