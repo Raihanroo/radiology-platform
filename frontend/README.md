@@ -60,6 +60,10 @@ AI/ML: TensorFlow, PyTorch, OpenCV, Pillow
 LLM: Google Gemini API (OpenAI-compatible integration)
 Database: SQLite (Development), PostgreSQL (Production Ready)
 Installation and Setup
+
+
+Installation and Setup
+
 Clone the repository:
 git clone <your-repo-link>cd radiology-platform
 Backend Setup (Django):
@@ -85,4 +89,3 @@ Access the application:
 Open your browser and navigate to http://localhost:5173/ for the frontend. The backend API will be running at http://127.0.0.1:8000/.
 text
 
-Ente
